@@ -1,7 +1,15 @@
 package snytng.astah.plugin.stm.view;
 
+import com.change_vision.jude.api.inf.AstahAPI;
+import com.change_vision.jude.api.inf.model.IDiagram;
+import com.change_vision.jude.api.inf.model.IStateMachineDiagram;
+import com.change_vision.jude.api.inf.model.ITransition;
+import com.change_vision.jude.api.inf.model.IVertex;
+import com.change_vision.jude.api.inf.project.ProjectAccessor;
 import com.change_vision.jude.api.inf.ui.IPluginExtraTabView;
 import com.change_vision.jude.api.inf.ui.ISelectionListener;
+import com.change_vision.jude.api.inf.view.IDiagramViewManager;
+import snytng.astah.plugin.stm.model.SimulationEngine;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -14,6 +22,7 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.FlowLayout;
+import java.util.List;
 
 public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
 
@@ -22,6 +31,8 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     private JLabel stateLabel;
     private JPanel eventPanel;
     private JTextArea logArea;
+
+    private final SimulationEngine engine = new SimulationEngine();
 
     public StmAnalysisView() {
         initComponents();
@@ -35,6 +46,9 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         startButton = new JButton("Start");
         resetButton = new JButton("Reset");
         stateLabel = new JLabel("Current State: -");
+
+        startButton.addActionListener(e -> startSimulation());
+        resetButton.addActionListener(e -> resetSimulation());
 
         topPanel.add(startButton);
         topPanel.add(resetButton);
@@ -60,6 +74,76 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         logScrollPane.setBorder(BorderFactory.createTitledBorder("Log"));
 
         add(logScrollPane, BorderLayout.SOUTH);
+    }
+
+    private void startSimulation() {
+        try {
+            ProjectAccessor projectAccessor = AstahAPI.getAstahAPI().getProjectAccessor();
+            IDiagramViewManager viewManager = projectAccessor.getViewManager().getDiagramViewManager();
+            IDiagram currentDiagram = viewManager.getCurrentDiagram();
+
+            if (currentDiagram instanceof IStateMachineDiagram) {
+                engine.start((IStateMachineDiagram) currentDiagram);
+                logArea.setText("Simulation started.\n");
+                refreshUI();
+            } else {
+                logArea.append("Please open a State Machine Diagram.\n");
+            }
+        } catch (Exception e) {
+            logArea.append("Error starting simulation: " + e.getMessage() + "\n");
+            e.printStackTrace();
+        }
+    }
+
+    private void resetSimulation() {
+        engine.start(null);
+        stateLabel.setText("Current State: -");
+        eventPanel.removeAll();
+        eventPanel.revalidate();
+        eventPanel.repaint();
+        logArea.setText("Simulation reset.\n");
+    }
+
+    private void refreshUI() {
+        IVertex current = engine.getCurrentVertex();
+        if (current != null) {
+            stateLabel.setText("Current State: " + current.getName());
+
+            eventPanel.removeAll();
+            List<ITransition> transitions = engine.getAvailableTransitions();
+            if (transitions.isEmpty()) {
+                eventPanel.add(new JLabel("No events available"));
+            } else {
+                for (ITransition t : transitions) {
+                    String label = t.getEvent();
+                    if (label == null || label.isEmpty()) {
+                        label = "Transition to " + t.getTarget().getName();
+                    }
+                    JButton btn = new JButton(label);
+                    btn.addActionListener(e -> fireTransition(t));
+                    eventPanel.add(btn);
+                }
+            }
+        } else {
+            stateLabel.setText("Current State: -");
+            eventPanel.removeAll();
+        }
+        eventPanel.revalidate();
+        eventPanel.repaint();
+    }
+
+    private void fireTransition(ITransition t) {
+        IVertex source = engine.getCurrentVertex();
+        engine.fire(t);
+        IVertex target = engine.getCurrentVertex();
+
+        String eventName = t.getEvent();
+        if (eventName == null || eventName.isEmpty()) eventName = "(anonymous)";
+
+        logArea.append(String.format("%s -> [%s] -> %s\n",
+                source.getName(), eventName, target.getName()));
+
+        refreshUI();
     }
 
     @Override
