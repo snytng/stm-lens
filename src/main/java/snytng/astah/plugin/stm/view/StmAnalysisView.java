@@ -151,9 +151,18 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
                 eventPanel.add(new JLabel("No events available"));
             } else {
                 for (ITransition t : transitions) {
-                    String label = t.getEvent();
+                    String label = t.getEvent() != null ? t.getEvent() : "(anonymous transition)";
+                    String guard = t.getGuard();
+                    if (guard != null && !guard.isEmpty()) {
+                        label += " [" + guard + "]";
+                    } else {
+                        //ガードがないときのelseを表現
+                        label += " [else]";
+
+                    }
+
                     if (label == null || label.isEmpty()) {
-                        label = "Transition to " + t.getTarget().getName();
+                       label = "Transition to " + t.getTarget().getName();
                     }
                     JButton btn = new JButton(label);
                     btn.addActionListener(e -> fireTransition(t));
