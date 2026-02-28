@@ -9,6 +9,7 @@ import com.change_vision.jude.api.inf.project.ProjectAccessor;
 import com.change_vision.jude.api.inf.ui.IPluginExtraTabView;
 import com.change_vision.jude.api.inf.ui.ISelectionListener;
 import com.change_vision.jude.api.inf.view.IDiagramViewManager;
+import snytng.astah.plugin.stm.model.DiagramHighlighter;
 import snytng.astah.plugin.stm.model.SimulationEngine;
 
 import javax.swing.BorderFactory;
@@ -33,9 +34,18 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     private JTextArea logArea;
 
     private final SimulationEngine engine = new SimulationEngine();
+    private DiagramHighlighter highlighter;
+    private IVertex previousVertex;
+    private ITransition lastTransition;
 
     public StmAnalysisView() {
         initComponents();
+        try {
+            this.highlighter = new DiagramHighlighter();
+        } catch (ClassNotFoundException e) {
+            this.highlighter = null;
+            logArea.append("Error: astah* API not found.\n");
+        }
     }
 
     private void initComponents() {
@@ -83,7 +93,14 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
             IDiagram currentDiagram = viewManager.getCurrentDiagram();
 
             if (currentDiagram instanceof IStateMachineDiagram) {
+                if(highlighter != null) {
+                    highlighter.setDiagram(currentDiagram);
+                    highlighter.clearAll();
+                }
+
                 engine.start((IStateMachineDiagram) currentDiagram);
+                previousVertex = null;
+                lastTransition = null;
                 logArea.setText("Simulation started.\n");
                 refreshUI();
             } else {
@@ -96,7 +113,13 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     }
 
     private void resetSimulation() {
+        if(highlighter != null) {
+            highlighter.clearAll();
+        }
+
         engine.start(null);
+        previousVertex = null;
+        lastTransition = null;
         stateLabel.setText("Current State: -");
         eventPanel.removeAll();
         eventPanel.revalidate();
@@ -105,10 +128,17 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     }
 
     private void refreshUI() {
+        if(highlighter != null) {
+            highlighter.clearAll();
+        }
+
         IVertex current = engine.getCurrentVertex();
         if (current != null) {
             stateLabel.setText("Current State: " + current.getName());
 
+            if(highlighter != null) {
+                highlighter.highlight(current, previousVertex, lastTransition);
+            }
             eventPanel.removeAll();
             List<ITransition> transitions = engine.getAvailableTransitions();
             if (transitions.isEmpty()) {
@@ -133,7 +163,8 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     }
 
     private void fireTransition(ITransition t) {
-        IVertex source = engine.getCurrentVertex();
+        previousVertex = engine.getCurrentVertex();
+        lastTransition = t;
         engine.fire(t);
         IVertex target = engine.getCurrentVertex();
 
@@ -141,7 +172,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         if (eventName == null || eventName.isEmpty()) eventName = "(anonymous)";
 
         logArea.append(String.format("%s -> [%s] -> %s\n",
-                source.getName(), eventName, target.getName()));
+                previousVertex.getName(), eventName, target.getName()));
 
         refreshUI();
     }
@@ -171,5 +202,8 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
 
     @Override
     public void deactivated() {
+        if(highlighter != null) {
+            highlighter.clearAll();
+        }
     }
 }
