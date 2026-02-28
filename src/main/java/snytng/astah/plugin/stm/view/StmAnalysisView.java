@@ -16,6 +16,7 @@ import snytng.astah.plugin.stm.model.SimulationEngine;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
@@ -31,6 +32,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     private JButton startButton;
     private JButton resetButton;
     private JLabel stateLabel;
+    private JCheckBox showActionsCheckbox;
     private JPanel eventPanel;
     private JTextArea logArea;
 
@@ -57,6 +59,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         startButton = new JButton("Start");
         resetButton = new JButton("Reset");
         stateLabel = new JLabel("Current State: -");
+        showActionsCheckbox = new JCheckBox("Show Actions", true);
 
         startButton.addActionListener(e -> startSimulation());
         resetButton.addActionListener(e -> resetSimulation());
@@ -65,6 +68,8 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         topPanel.add(resetButton);
         topPanel.add(Box.createHorizontalStrut(20));
         topPanel.add(stateLabel);
+        topPanel.add(Box.createHorizontalStrut(10));
+        topPanel.add(showActionsCheckbox);
 
         add(topPanel, BorderLayout.NORTH);
 
@@ -170,8 +175,10 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         if (eventName == null || eventName.isEmpty()) eventName = "(anonymous)";
         logArea.append(String.format("--- Event: %s ---\n", eventName));
 
+        boolean showActions = showActionsCheckbox.isSelected();
+
         // 1. Source Exit
-        if (source instanceof IState) {
+        if (showActions && source instanceof IState) {
             String exit = ((IState) source).getExit();
             if (exit != null && !exit.isEmpty()) {
                 logArea.append("  [Exit] " + exit + "\n");
@@ -180,7 +187,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
 
         // 2. Transition Action
         String action = t.getAction();
-        if (action != null && !action.isEmpty()) {
+        if (showActions && action != null && !action.isEmpty()) {
             logArea.append("  [Action] " + action + "\n");
         }
 
@@ -190,7 +197,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         IVertex target = engine.getCurrentVertex();
 
         // 3. Target Entry
-        if (target instanceof IState) {
+        if (showActions && target instanceof IState) {
             String entry = ((IState) target).getEntry();
             if (entry != null && !entry.isEmpty()) {
                 logArea.append("  [Entry] " + entry + "\n");
@@ -198,7 +205,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         }
 
         // 4. Target Do
-        if (target instanceof IState) {
+        if (showActions && target instanceof IState) {
             String doActivity = ((IState) target).getDoActivity();
             if (doActivity != null && !doActivity.isEmpty()) {
                 logArea.append("  [Do] " + doActivity + "\n");
