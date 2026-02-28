@@ -3,6 +3,7 @@ package snytng.astah.plugin.stm.view;
 import com.change_vision.jude.api.inf.AstahAPI;
 import com.change_vision.jude.api.inf.model.IDiagram;
 import com.change_vision.jude.api.inf.model.IStateMachineDiagram;
+import com.change_vision.jude.api.inf.model.IState;
 import com.change_vision.jude.api.inf.model.ITransition;
 import com.change_vision.jude.api.inf.model.IVertex;
 import com.change_vision.jude.api.inf.project.ProjectAccessor;
@@ -163,16 +164,49 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     }
 
     private void fireTransition(ITransition t) {
-        previousVertex = engine.getCurrentVertex();
+        IVertex source = engine.getCurrentVertex();
+
+        String eventName = t.getEvent();
+        if (eventName == null || eventName.isEmpty()) eventName = "(anonymous)";
+        logArea.append(String.format("--- Event: %s ---\n", eventName));
+
+        // 1. Source Exit
+        if (source instanceof IState) {
+            String exit = ((IState) source).getExit();
+            if (exit != null && !exit.isEmpty()) {
+                logArea.append("  [Exit] " + exit + "\n");
+            }
+        }
+
+        // 2. Transition Action
+        String action = t.getAction();
+        if (action != null && !action.isEmpty()) {
+            logArea.append("  [Action] " + action + "\n");
+        }
+
+        previousVertex = source;
         lastTransition = t;
         engine.fire(t);
         IVertex target = engine.getCurrentVertex();
 
-        String eventName = t.getEvent();
-        if (eventName == null || eventName.isEmpty()) eventName = "(anonymous)";
+        // 3. Target Entry
+        if (target instanceof IState) {
+            String entry = ((IState) target).getEntry();
+            if (entry != null && !entry.isEmpty()) {
+                logArea.append("  [Entry] " + entry + "\n");
+            }
+        }
 
-        logArea.append(String.format("%s -> [%s] -> %s\n",
-                previousVertex.getName(), eventName, target.getName()));
+        // 4. Target Do
+        if (target instanceof IState) {
+            String doActivity = ((IState) target).getDoActivity();
+            if (doActivity != null && !doActivity.isEmpty()) {
+                logArea.append("  [Do] " + doActivity + "\n");
+            }
+        }
+
+        logArea.append(String.format("Transition: %s -> %s\n",
+                previousVertex.getName(), target.getName()));
 
         refreshUI();
     }
