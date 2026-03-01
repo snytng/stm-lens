@@ -13,6 +13,7 @@ import java.awt.Color;
 import java.util.List;
 import java.util.Set;
 import java.util.HashSet;
+import java.util.Map;
 
 public class DiagramHighlighter {
 
@@ -70,6 +71,23 @@ public class DiagramHighlighter {
             }
         } catch (InvalidUsingException e) {
             System.err.println("Failed to highlight: " + e.getMessage());
+        }
+    }
+
+    public void highlightAvailableTransitions(Map<ITransition, Color> transitionColors) {
+        if (viewManager == null || diagram == null) {
+            return;
+        }
+        try {
+            for (IPresentation p : diagram.getPresentations()) {
+                Object model = p.getModel();
+                if (model instanceof ITransition && transitionColors.containsKey(model)) {
+                    Color color = transitionColors.get(model);
+                    viewManager.setViewProperty(p, IDiagramViewManager.LINE_COLOR, color);
+                }
+            }
+        } catch (InvalidUsingException e) {
+            System.err.println("Failed to highlight available transitions: " + e.getMessage());
         }
     }
 

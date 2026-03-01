@@ -27,6 +27,8 @@ import java.awt.Component;
 import java.awt.FlowLayout;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
 
 public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
 
@@ -39,6 +41,15 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
 
     private final SimulationEngine engine = new SimulationEngine();
     private DiagramHighlighter highlighter;
+
+    private static final Color[] EVENT_COLORS = {
+        new Color(255, 180, 180), // Red-ish
+        new Color(180, 255, 180), // Green-ish
+        new Color(180, 180, 255), // Blue-ish
+        new Color(255, 255, 180), // Yellow-ish
+        new Color(255, 180, 255), // Magenta-ish
+        new Color(180, 255, 255)  // Cyan-ish
+    };
 
     public StmAnalysisView() {
         initComponents();
@@ -151,6 +162,8 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
             if (transitions.isEmpty()) {
                 eventPanel.add(new JLabel("No events available"));
             } else {
+                Map<ITransition, Color> transitionColors = new HashMap<>();
+                int colorIndex = 0;
                 for (ITransition t : transitions) {
                     boolean hasOtherTransitionsWithSameEvent = false;
                     String eventName = t.getEvent();
@@ -178,8 +191,17 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
                     }
 
                     JButton btn = new JButton(label);
+                    Color color = EVENT_COLORS[colorIndex % EVENT_COLORS.length];
+                    btn.setBackground(color);
+                    btn.setForeground(color.darker().darker().darker());
+                    transitionColors.put(t, color);
+                    colorIndex++;
+
                     btn.addActionListener(e -> fireTransition(t));
                     eventPanel.add(btn);
+                }
+                if (highlighter != null) {
+                    highlighter.highlightAvailableTransitions(transitionColors);
                 }
             }
         } else {
