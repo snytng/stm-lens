@@ -11,6 +11,8 @@ import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
+import java.util.LinkedHashSet;
 
 public class SimulationEngine {
 
@@ -71,6 +73,11 @@ public class SimulationEngine {
                         }
                         
                         currentVertices.addAll(drillDown(target, entryActions));
+                        
+                        // Update history for highlighting (Initial state as previous)
+                        previousVertex = ps;
+                        lastTransition = t;
+                        
                         return new StepResult(ps, target, t, exitActions, transitionAction, entryActions, null);
                     } else {
                         currentVertices.add(ps);
@@ -86,7 +93,7 @@ public class SimulationEngine {
         if (currentVertices.isEmpty()) {
             return Collections.emptyList();
         }
-        List<ITransition> transitions = new ArrayList<>();
+        Set<ITransition> transitions = new LinkedHashSet<>();
         
         for (IVertex v : currentVertices) {
             transitions.addAll(Arrays.asList(v.getOutgoings()));
@@ -98,7 +105,7 @@ public class SimulationEngine {
                 container = container.getContainer();
             }
         }
-        return transitions;
+        return new ArrayList<>(transitions);
     }
 
     public StepResult step(ITransition transition) {

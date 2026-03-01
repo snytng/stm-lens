@@ -3,6 +3,7 @@ package snytng.astah.plugin.stm.model;
 import com.change_vision.jude.api.inf.AstahAPI;
 import com.change_vision.jude.api.inf.exception.InvalidUsingException;
 import com.change_vision.jude.api.inf.model.IDiagram;
+import com.change_vision.jude.api.inf.model.IElement;
 import com.change_vision.jude.api.inf.model.ITransition;
 import com.change_vision.jude.api.inf.model.IVertex;
 import com.change_vision.jude.api.inf.presentation.IPresentation;
@@ -10,6 +11,8 @@ import com.change_vision.jude.api.inf.project.ProjectAccessor;
 import com.change_vision.jude.api.inf.view.IDiagramViewManager;
 import java.awt.Color;
 import java.util.List;
+import java.util.Set;
+import java.util.HashSet;
 
 public class DiagramHighlighter {
 
@@ -36,6 +39,19 @@ public class DiagramHighlighter {
         if (viewManager == null || diagram == null) {
             return;
         }
+        
+        // Calculate ancestors of current vertices
+        Set<IElement> ancestors = new HashSet<>();
+        if (currentVertices != null) {
+            for (IVertex v : currentVertices) {
+                IElement container = v.getContainer();
+                while (container != null) {
+                    ancestors.add(container);
+                    container = container.getContainer();
+                }
+            }
+        }
+
         try {
             for (IPresentation p : diagram.getPresentations()) {
                 Object model = p.getModel();
@@ -43,6 +59,8 @@ public class DiagramHighlighter {
 
                 if (currentVertices != null && currentVertices.contains(model)) {
                     viewManager.setViewProperty(p, IDiagramViewManager.BACKGROUND_COLOR, HIGHLIGHT_COLOR);
+                    viewManager.setViewProperty(p, IDiagramViewManager.BORDER_COLOR, Color.GREEN);
+                } else if (ancestors.contains(model)) {
                     viewManager.setViewProperty(p, IDiagramViewManager.BORDER_COLOR, Color.GREEN);
                 } else if (previous != null && previous.equals(model)) {
                     viewManager.setViewProperty(p, IDiagramViewManager.BORDER_COLOR, Color.MAGENTA);
