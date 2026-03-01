@@ -38,8 +38,6 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
 
     private final SimulationEngine engine = new SimulationEngine();
     private DiagramHighlighter highlighter;
-    private IVertex previousVertex;
-    private ITransition lastTransition;
 
     public StmAnalysisView() {
         initComponents();
@@ -105,8 +103,6 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
                 }
 
                 engine.start((IStateMachineDiagram) currentDiagram);
-                previousVertex = null;
-                lastTransition = null;
                 logArea.setText("Simulation started.\n");
                 refreshUI();
             } else {
@@ -124,8 +120,6 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         }
 
         engine.start(null);
-        previousVertex = null;
-        lastTransition = null;
         stateLabel.setText("Current State: -");
         eventPanel.removeAll();
         eventPanel.revalidate();
@@ -143,7 +137,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
             stateLabel.setText("Current State: " + current.getName());
 
             if(highlighter != null) {
-                highlighter.highlight(current, previousVertex, lastTransition);
+                highlighter.highlight(current, engine.getPreviousVertex(), engine.getLastTransition());
             }
             eventPanel.removeAll();
             List<ITransition> transitions = engine.getAvailableTransitions();
@@ -190,51 +184,37 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     }
 
     private void fireTransition(ITransition t) {
-        IVertex source = engine.getCurrentVertex();
+        SimulationEngine.StepResult result = engine.step(t);
+        if (result == null) return;
 
-        String eventName = t.getEvent();
+        String eventName = result.transition.getEvent();
         if (eventName == null || eventName.isEmpty()) eventName = "(anonymous)";
         logArea.append(String.format("--- Event: %s ---\n", eventName));
 
         boolean showActions = showActionsCheckbox.isSelected();
 
         // 1. Source Exit
-        if (showActions && source instanceof IState) {
-            String exit = ((IState) source).getExit();
-            if (exit != null && !exit.isEmpty()) {
-                logArea.append("  [Exit] " + exit + "\n");
-            }
+        if (showActions && result.exitAction != null && !result.exitAction.isEmpty()) {
+            logArea.append("  [Exit] " + result.exitAction + "\n");
         }
 
         // 2. Transition Action
-        String action = t.getAction();
-        if (showActions && action != null && !action.isEmpty()) {
-            logArea.append("  [Action] " + action + "\n");
+        if (showActions && result.transitionAction != null && !result.transitionAction.isEmpty()) {
+            logArea.append("  [Action] " + result.transitionAction + "\n");
         }
 
-        previousVertex = source;
-        lastTransition = t;
-        engine.fire(t);
-        IVertex target = engine.getCurrentVertex();
-
         // 3. Target Entry
-        if (showActions && target instanceof IState) {
-            String entry = ((IState) target).getEntry();
-            if (entry != null && !entry.isEmpty()) {
-                logArea.append("  [Entry] " + entry + "\n");
-            }
+        if (showActions && result.entryAction != null && !result.entryAction.isEmpty()) {
+            logArea.append("  [Entry] " + result.entryAction + "\n");
         }
 
         // 4. Target Do
-        if (showActions && target instanceof IState) {
-            String doActivity = ((IState) target).getDoActivity();
-            if (doActivity != null && !doActivity.isEmpty()) {
-                logArea.append("  [Do] " + doActivity + "\n");
-            }
+        if (showActions && result.doActivity != null && !result.doActivity.isEmpty()) {
+            logArea.append("  [Do] " + result.doActivity + "\n");
         }
 
         logArea.append(String.format("Transition: %s -> %s\n",
-                previousVertex.getName(), target.getName()));
+                result.source.getName(), result.target.getName()));
 
         refreshUI();
     }
