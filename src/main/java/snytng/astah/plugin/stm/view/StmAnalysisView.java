@@ -25,6 +25,7 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.FlowLayout;
+import java.util.ArrayList;
 import java.util.List;
 
 public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
@@ -132,12 +133,23 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
             highlighter.clearAll();
         }
 
-        IVertex current = engine.getCurrentVertex();
-        if (current != null) {
-            stateLabel.setText("Current State: " + current.getName());
+        List<IVertex> currents = engine.getCurrentVertices();
+        if (currents != null && !currents.isEmpty()) {
+            StringBuilder sb = new StringBuilder("Current State: ");
+            for (int i = 0; i < currents.size(); i++) {
+                sb.append(currents.get(i).getName());
+                if (i < currents.size() - 1) sb.append(", ");
+            }
+            stateLabel.setText(sb.toString());
 
             if(highlighter != null) {
-                highlighter.highlight(current, engine.getPreviousVertex(), engine.getLastTransition());
+                // Highlight the first one or iterate? DiagramHighlighter might clear previous highlights.
+                // For now, highlight the first one to avoid flickering or clearing issues if it doesn't support multi-select.
+                // Ideally we should highlight all. Assuming highlight() clears, we can only show one.
+                // Let's try to highlight the last added one or the primary one.
+                if (!currents.isEmpty()) {
+                     highlighter.highlight(currents.get(0), engine.getPreviousVertex(), engine.getLastTransition());
+                }
             }
             eventPanel.removeAll();
             List<ITransition> transitions = engine.getAvailableTransitions();

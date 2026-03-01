@@ -14,7 +14,7 @@ import java.util.List;
 
 public class SimulationEngine {
 
-    private IVertex currentVertex;
+    private List<IVertex> currentVertices = new ArrayList<>();
     private IVertex previousVertex;
     private ITransition lastTransition;
 
@@ -40,7 +40,7 @@ public class SimulationEngine {
     }
 
     public void start(IStateMachineDiagram diagram) {
-        currentVertex = null;
+        currentVertices.clear();
         previousVertex = null;
         lastTransition = null;
 
@@ -55,9 +55,10 @@ public class SimulationEngine {
                 if (ps.isInitialPseudostate()) {
                     ITransition[] outgoings = ps.getOutgoings();
                     if (outgoings != null && outgoings.length > 0) {
-                        currentVertex = outgoings[0].getTarget();
+                        List<String> dummyActions = new ArrayList<>();
+                        currentVertices.addAll(drillDown(outgoings[0].getTarget(), dummyActions));
                     } else {
-                        currentVertex = ps;
+                        currentVertices.add(ps);
                     }
                     return;
                 }
@@ -66,16 +67,18 @@ public class SimulationEngine {
     }
 
     public List<ITransition> getAvailableTransitions() {
-        if (currentVertex == null) {
+        if (currentVertices.isEmpty()) {
             return Collections.emptyList();
         }
         List<ITransition> transitions = new ArrayList<>();
-        transitions.addAll(Arrays.asList(currentVertex.getOutgoings()));
-
-        IElement container = currentVertex.getContainer();
-        while (container instanceof IState) {
-            transitions.addAll(Arrays.asList(((IState) container).getOutgoings()));
-            container = container.getContainer();
+        
+        for (IVertex v : currentVertices) {
+            transitions.addAll(Arrays.asList(v.getOutgoings()));
+            IElement container = v.getContainer();
+            while (container instanceof IState) {
+                transitions.addAll(Arrays.asList(((IState) container).getOutgoings()));
+                container = container.getContainer();
+            }
         }
         return transitions;
     }
@@ -83,11 +86,22 @@ public class SimulationEngine {
     public StepResult step(ITransition transition) {
         if (transition == null) return null;
 
-        IVertex source = currentVertex;
+        IVertex source = transition.getSource();
         IVertex target = transition.getTarget();
 
         // 1. Find LCA (Least Common Ancestor)
         IElement lca = findLCA(source, target);
+        
+        // Remove source from current vertices
+        currentVertices.remove(source);
+
+        // If exiting a composite state, remove all other active vertices within that scope
+        if (lca != null) {
+            // We are exiting everything below LCA.
+            // Any active vertex that is a descendant of LCA (and not LCA itself) should be removed.
+            // (Strictly speaking, we should check if it's a descendant of the specific child of LCA that we are exiting, but removing all descendants of LCA works for standard transitions out of composite)
+            currentVertices.removeIf(v -> isDescendant(v, lca));
+        }
 
         // 2. Collect Exit Actions (Source -> LCA)
         List<String> exitActions = new ArrayList<>();
@@ -101,24 +115,27 @@ public class SimulationEngine {
         collectEntryActions(target, lca, entryActions);
 
         // 5. Drill down if target is composite (Initial -> ...)
-        IVertex finalTarget = drillDown(target, entryActions);
+        List<IVertex> nextVertices = drillDown(target, entryActions);
 
         // 6. Do Activity
         String doActivity = null;
-        if (finalTarget instanceof IState) {
-            doActivity = ((IState) finalTarget).getDoActivity();
+        // For simplicity, just take the first one's Do activity if available, or join them?
+        // Let's just record the primary target's Do if it's a state.
+        if (target instanceof IState) {
+            doActivity = ((IState) target).getDoActivity();
         }
 
         // Update state
         previousVertex = source;
         lastTransition = transition;
-        currentVertex = finalTarget;
+        currentVertices.addAll(nextVertices);
 
-        return new StepResult(source, finalTarget, transition, exitActions, transitionAction, entryActions, doActivity);
+        // For StepResult, we return the primary target of the transition, though multiple states might be active.
+        return new StepResult(source, target, transition, exitActions, transitionAction, entryActions, doActivity);
     }
 
-    public IVertex getCurrentVertex() {
-        return currentVertex;
+    public List<IVertex> getCurrentVertices() {
+        return currentVertices;
     }
 
     public IVertex getPreviousVertex() {
@@ -190,17 +207,26 @@ public class SimulationEngine {
         actions.addAll(temp);
     }
 
-    private IVertex drillDown(IVertex current, List<String> entryActions) {
-        if (!(current instanceof IState)) return current;
+    private List<IVertex> drillDown(IVertex current, List<String> entryActions) {
+        List<IVertex> results = new ArrayList<>();
+        if (!(current instanceof IState)) {
+            results.add(current);
+            return results;
+        }
 
         IState state = (IState) current;
         IVertex[] subvertexes = state.getSubvertexes();
-        if (subvertexes == null) return current;
+        if (subvertexes == null || subvertexes.length == 0) {
+            results.add(current);
+            return results;
+        }
 
+        boolean foundInitial = false;
         for (IVertex v : subvertexes) {
             if (v instanceof IPseudostate && ((IPseudostate) v).isInitialPseudostate()) {
                 ITransition[] outgoings = v.getOutgoings();
                 if (outgoings != null && outgoings.length > 0) {
+                    foundInitial = true;
                     ITransition t = outgoings[0];
                     String action = t.getAction();
                     if (action != null && !action.isEmpty()) {
@@ -217,10 +243,26 @@ public class SimulationEngine {
                             entryActions.add(entry);
                         }
                     }
-                    return drillDown(next, entryActions);
+                    results.addAll(drillDown(next, entryActions));
                 }
             }
         }
-        return current;
+        
+        if (!foundInitial) {
+            results.add(current);
+        }
+        
+        return results;
+    }
+
+    private boolean isDescendant(IVertex v, IElement ancestor) {
+        IElement current = v.getContainer();
+        while (current != null) {
+            if (current.equals(ancestor)) {
+                return true;
+            }
+            current = current.getContainer();
+        }
+        return false;
     }
 }
