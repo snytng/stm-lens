@@ -194,8 +194,10 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         boolean showActions = showActionsCheckbox.isSelected();
 
         // 1. Source Exit
-        if (showActions && result.exitAction != null && !result.exitAction.isEmpty()) {
-            logArea.append("  [Exit] " + result.exitAction + "\n");
+        if (showActions && result.exitActions != null) {
+            for (String exit : result.exitActions) {
+                logArea.append("  [Exit] " + exit + "\n");
+            }
         }
 
         // 2. Transition Action
@@ -204,8 +206,10 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         }
 
         // 3. Target Entry
-        if (showActions && result.entryAction != null && !result.entryAction.isEmpty()) {
-            logArea.append("  [Entry] " + result.entryAction + "\n");
+        if (showActions && result.entryActions != null) {
+            for (String entry : result.entryActions) {
+                logArea.append("  [Entry] " + entry + "\n");
+            }
         }
 
         // 4. Target Do
