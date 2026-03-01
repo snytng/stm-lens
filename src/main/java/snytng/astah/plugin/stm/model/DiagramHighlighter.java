@@ -35,7 +35,7 @@ public class DiagramHighlighter {
         this.diagram = diagram;
     }
 
-    public void highlight(List<IVertex> currentVertices, IVertex previous, ITransition transition) {
+    public void highlight(List<IVertex> currentVertices, List<IVertex> previousVertices, ITransition transition) {
         if (viewManager == null || diagram == null) {
             return;
         }
@@ -62,7 +62,7 @@ public class DiagramHighlighter {
                     viewManager.setViewProperty(p, IDiagramViewManager.BORDER_COLOR, Color.GREEN);
                 } else if (ancestors.contains(model)) {
                     viewManager.setViewProperty(p, IDiagramViewManager.BORDER_COLOR, Color.GREEN);
-                } else if (previous != null && previous.equals(model)) {
+                } else if (previousVertices != null && previousVertices.contains(model)) {
                     viewManager.setViewProperty(p, IDiagramViewManager.BORDER_COLOR, Color.MAGENTA);
                 } else if (transition != null && transition.equals(model)) {
                     viewManager.setViewProperty(p, IDiagramViewManager.LINE_COLOR, Color.MAGENTA);

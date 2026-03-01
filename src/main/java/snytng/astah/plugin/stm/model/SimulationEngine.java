@@ -17,7 +17,7 @@ import java.util.LinkedHashSet;
 public class SimulationEngine {
 
     private List<IVertex> currentVertices = new ArrayList<>();
-    private IVertex previousVertex;
+    private List<IVertex> previousVertices = new ArrayList<>();
     private ITransition lastTransition;
 
     public static class StepResult {
@@ -43,7 +43,7 @@ public class SimulationEngine {
 
     public StepResult start(IStateMachineDiagram diagram) {
         currentVertices.clear();
-        previousVertex = null;
+        previousVertices.clear();
         lastTransition = null;
 
         if (diagram == null) return null;
@@ -75,7 +75,7 @@ public class SimulationEngine {
                         currentVertices.addAll(drillDown(target, entryActions));
                         
                         // Update history for highlighting (Initial state as previous)
-                        previousVertex = ps;
+                        previousVertices.add(ps);
                         lastTransition = t;
                         
                         return new StepResult(ps, target, t, exitActions, transitionAction, entryActions, null);
@@ -168,7 +168,17 @@ public class SimulationEngine {
         }
 
         // Update state
-        previousVertex = source;
+        previousVertices.clear();
+        for (IElement e : exitedStates) {
+            if (e instanceof IVertex) {
+                previousVertices.add((IVertex) e);
+            }
+        }
+        for (IVertex removed : toRemove) {
+            if (!previousVertices.contains(removed)) {
+                previousVertices.add(removed);
+            }
+        }
         lastTransition = transition;
         currentVertices.addAll(nextVertices);
 
@@ -180,8 +190,8 @@ public class SimulationEngine {
         return currentVertices;
     }
 
-    public IVertex getPreviousVertex() {
-        return previousVertex;
+    public List<IVertex> getPreviousVertices() {
+        return previousVertices;
     }
 
     public ITransition getLastTransition() {

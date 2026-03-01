@@ -32,7 +32,7 @@
 
 #### 準備: テスト用モデルの作成
 以下の要素を持つステートマシン図を作成し、各状態にEntry/Exitアクションを設定してください。
-**（scripts/create_test_model_no11.js をスクリプトエディタで実行すると自動作成できます）**
+**（test/scripts/create_test_model_no11.js をスクリプトエディタで実行すると自動作成できます）**
 
 *   **Initial**: トップレベルの初期状態 -> StateA
 *   **StateA**: (Entry: "entA", Exit: "exA")
@@ -83,7 +83,7 @@
 ### No.12 平行状態の実装
 
 #### 準備: テスト用モデルの作成
-**（scripts/create_test_model_no12.js をスクリプトエディタで実行すると自動作成できます）**
+**（test/scripts/create_test_model_no12.js をスクリプトエディタで実行すると自動作成できます）**
 *   **StateA**: 複合状態。内部に2つの独立した遷移フロー（リージョン）を持つ。
     *   Region 1: Initial -> S1 -> S2 (Event: e1)
     *   Region 2: Initial -> S3 -> S4 (Event: e2)
@@ -109,3 +109,21 @@
     2. `[Exit] exS3` (または exS2)
     3. `[Exit] exA`
     4. `Transition: StateA -> StateEnd`
+
+### No.13 複合状態退出時のハイライト強化
+
+#### 準備: テスト用モデルの作成
+**（test/scripts/create_test_model_no13.js をスクリプトエディタで実行すると自動作成できます）**
+*   **StateA**: 複合状態 (内部に S1)
+*   **StateB**: 外部状態
+*   遷移: **StateA** -> **StateB** (Event: e1)
+*   遷移: **StateB** -> **StateA** (Event: e2)
+
+#### テストケース
+
+##### Case 13-1: 複合状態退出時のハイライト
+*   **操作**: Start -> StateA (S1) -> "e1" (StateA -> StateB) を実行
+*   **確認事項**:
+    *   カレント状態は **StateB** (黄色/緑枠)。
+    *   直前の状態として、**StateA** (親) と **S1** (子) の**両方**がマゼンタの枠線でハイライトされること。
+    *   遷移矢印 (e1) がマゼンタになること。

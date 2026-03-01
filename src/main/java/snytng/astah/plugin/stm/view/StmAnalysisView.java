@@ -144,7 +144,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
             stateLabel.setText(sb.toString());
 
             if(highlighter != null) {
-                highlighter.highlight(currents, engine.getPreviousVertex(), engine.getLastTransition());
+                highlighter.highlight(currents, engine.getPreviousVertices(), engine.getLastTransition());
             }
             eventPanel.removeAll();
             List<ITransition> transitions = engine.getAvailableTransitions();
