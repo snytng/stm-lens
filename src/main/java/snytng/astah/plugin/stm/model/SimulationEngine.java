@@ -39,15 +39,19 @@ public class SimulationEngine {
         }
     }
 
-    public void start(IStateMachineDiagram diagram) {
+    public StepResult start(IStateMachineDiagram diagram) {
         currentVertices.clear();
         previousVertex = null;
         lastTransition = null;
 
-        if (diagram == null) return;
+        if (diagram == null) return null;
 
         IStateMachine sm = diagram.getStateMachine();
-        if (sm == null) return;
+        if (sm == null) return null;
+        
+        List<String> entryActions = new ArrayList<>();
+        List<String> exitActions = new ArrayList<>();
+        String transitionAction = null;
 
         for (IVertex vertex : sm.getVertexes()) {
             if (vertex instanceof IPseudostate) {
@@ -55,15 +59,27 @@ public class SimulationEngine {
                 if (ps.isInitialPseudostate()) {
                     ITransition[] outgoings = ps.getOutgoings();
                     if (outgoings != null && outgoings.length > 0) {
-                        List<String> dummyActions = new ArrayList<>();
-                        currentVertices.addAll(drillDown(outgoings[0].getTarget(), dummyActions));
+                        ITransition t = outgoings[0];
+                        transitionAction = t.getAction();
+                        IVertex target = t.getTarget();
+                        
+                        if (target instanceof IState) {
+                            String entry = ((IState) target).getEntry();
+                            if (entry != null && !entry.isEmpty()) {
+                                entryActions.add(entry);
+                            }
+                        }
+                        
+                        currentVertices.addAll(drillDown(target, entryActions));
+                        return new StepResult(ps, target, t, exitActions, transitionAction, entryActions, null);
                     } else {
                         currentVertices.add(ps);
+                        return new StepResult(ps, ps, null, exitActions, null, entryActions, null);
                     }
-                    return;
                 }
             }
         }
+        return null;
     }
 
     public List<ITransition> getAvailableTransitions() {
@@ -75,8 +91,10 @@ public class SimulationEngine {
         for (IVertex v : currentVertices) {
             transitions.addAll(Arrays.asList(v.getOutgoings()));
             IElement container = v.getContainer();
-            while (container instanceof IState) {
-                transitions.addAll(Arrays.asList(((IState) container).getOutgoings()));
+            while (container != null && !(container instanceof IStateMachine)) {
+                if (container instanceof IState) {
+                    transitions.addAll(Arrays.asList(((IState) container).getOutgoings()));
+                }
                 container = container.getContainer();
             }
         }
@@ -92,19 +110,36 @@ public class SimulationEngine {
         // 1. Find LCA (Least Common Ancestor)
         IElement lca = findLCA(source, target);
         
-        // Remove source from current vertices
-        currentVertices.remove(source);
-
-        // If exiting a composite state, remove all other active vertices within that scope
-        if (lca != null) {
-            // We are exiting everything below LCA.
-            // Any active vertex that is a descendant of LCA (and not LCA itself) should be removed.
-            // (Strictly speaking, we should check if it's a descendant of the specific child of LCA that we are exiting, but removing all descendants of LCA works for standard transitions out of composite)
-            currentVertices.removeIf(v -> isDescendant(v, lca));
+        // Identify states being exited (from source up to, but not including, LCA)
+        List<IElement> exitedStates = new ArrayList<>();
+        IVertex v = source;
+        while (v != null && v != lca) {
+            exitedStates.add(v);
+            IElement container = v.getContainer();
+            v = (container instanceof IVertex) ? (IVertex) container : null;
         }
-
-        // 2. Collect Exit Actions (Source -> LCA)
+        
+        // 2. Collect Exit Actions
         List<String> exitActions = new ArrayList<>();
+
+        // 2a. Handle implicit exits (descendants of exited states)
+        List<IVertex> toRemove = new ArrayList<>();
+        for (IVertex active : currentVertices) {
+            IElement boundary = null;
+            for (IElement exited : exitedStates) {
+                if (active.equals(exited) || isDescendant(active, exited)) {
+                    boundary = exited;
+                    break; // Found the most specific exited ancestor (or self)
+                }
+            }
+            if (boundary != null) {
+                collectExitActions(active, boundary, exitActions);
+                toRemove.add(active);
+            }
+        }
+        currentVertices.removeAll(toRemove);
+
+        // 2b. Collect Exit Actions for the main path (Source -> LCA)
         collectExitActions(source, lca, exitActions);
 
         // 3. Transition Action
@@ -165,13 +200,8 @@ public class SimulationEngine {
         IElement current = v.getContainer();
         while (current != null) {
             ancestors.add(current);
-            if (current instanceof IState) {
-                current = ((IState) current).getContainer();
-            } else if (current instanceof IStateMachine) {
-                current = null; // Root reached
-            } else {
-                current = null;
-            }
+            if (current instanceof IStateMachine) break;
+            current = current.getContainer();
         }
         return ancestors;
     }
@@ -215,11 +245,13 @@ public class SimulationEngine {
         }
 
         IState state = (IState) current;
-        IVertex[] subvertexes = state.getSubvertexes();
-        if (subvertexes == null || subvertexes.length == 0) {
+        IVertex[] sv = state.getSubvertexes();
+        if (sv == null || sv.length == 0) {
             results.add(current);
             return results;
         }
+        
+        List<IVertex> subvertexes = Arrays.asList(sv);
 
         boolean foundInitial = false;
         for (IVertex v : subvertexes) {
@@ -249,7 +281,23 @@ public class SimulationEngine {
         }
         
         if (!foundInitial) {
-            results.add(current);
+            // If no Initial Pseudostate found, assume Orthogonal State (Parallel)
+            // Treat sub-states as Regions and drill down into them.
+            boolean foundRegion = false;
+            for (IVertex v : subvertexes) {
+                if (v instanceof IState) {
+                    foundRegion = true;
+                    // Note: Regions (IState) usually don't have entry actions, but if they do, we collect them.
+                    String entry = ((IState) v).getEntry();
+                    if (entry != null && !entry.isEmpty()) {
+                        entryActions.add(entry);
+                    }
+                    results.addAll(drillDown(v, entryActions));
+                }
+            }
+            if (!foundRegion) {
+                results.add(current);
+            }
         }
         
         return results;

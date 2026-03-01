@@ -9,6 +9,7 @@ import com.change_vision.jude.api.inf.presentation.IPresentation;
 import com.change_vision.jude.api.inf.project.ProjectAccessor;
 import com.change_vision.jude.api.inf.view.IDiagramViewManager;
 import java.awt.Color;
+import java.util.List;
 
 public class DiagramHighlighter {
 
@@ -31,7 +32,7 @@ public class DiagramHighlighter {
         this.diagram = diagram;
     }
 
-    public void highlight(IVertex current, IVertex previous, ITransition transition) {
+    public void highlight(List<IVertex> currentVertices, IVertex previous, ITransition transition) {
         if (viewManager == null || diagram == null) {
             return;
         }
@@ -40,7 +41,7 @@ public class DiagramHighlighter {
                 Object model = p.getModel();
                 if (model == null) continue;
 
-                if (current != null && current.equals(model)) {
+                if (currentVertices != null && currentVertices.contains(model)) {
                     viewManager.setViewProperty(p, IDiagramViewManager.BACKGROUND_COLOR, HIGHLIGHT_COLOR);
                     viewManager.setViewProperty(p, IDiagramViewManager.BORDER_COLOR, Color.GREEN);
                 } else if (previous != null && previous.equals(model)) {

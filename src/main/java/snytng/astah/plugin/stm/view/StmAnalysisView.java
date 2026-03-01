@@ -103,8 +103,9 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
                     highlighter.clearAll();
                 }
 
-                engine.start((IStateMachineDiagram) currentDiagram);
+                SimulationEngine.StepResult result = engine.start((IStateMachineDiagram) currentDiagram);
                 logArea.setText("Simulation started.\n");
+                printStepResult(result);
                 refreshUI();
             } else {
                 logArea.append("Please open a State Machine Diagram.\n");
@@ -143,13 +144,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
             stateLabel.setText(sb.toString());
 
             if(highlighter != null) {
-                // Highlight the first one or iterate? DiagramHighlighter might clear previous highlights.
-                // For now, highlight the first one to avoid flickering or clearing issues if it doesn't support multi-select.
-                // Ideally we should highlight all. Assuming highlight() clears, we can only show one.
-                // Let's try to highlight the last added one or the primary one.
-                if (!currents.isEmpty()) {
-                     highlighter.highlight(currents.get(0), engine.getPreviousVertex(), engine.getLastTransition());
-                }
+                highlighter.highlight(currents, engine.getPreviousVertex(), engine.getLastTransition());
             }
             eventPanel.removeAll();
             List<ITransition> transitions = engine.getAvailableTransitions();
@@ -199,7 +194,14 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         SimulationEngine.StepResult result = engine.step(t);
         if (result == null) return;
 
-        String eventName = result.transition.getEvent();
+        printStepResult(result);
+        refreshUI();
+    }
+
+    private void printStepResult(SimulationEngine.StepResult result) {
+        if (result == null) return;
+
+        String eventName = (result.transition != null) ? result.transition.getEvent() : "Initial";
         if (eventName == null || eventName.isEmpty()) eventName = "(anonymous)";
         logArea.append(String.format("--- Event: %s ---\n", eventName));
 
@@ -231,8 +233,6 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
 
         logArea.append(String.format("Transition: %s -> %s\n",
                 result.source.getName(), result.target.getName()));
-
-        refreshUI();
     }
 
     @Override

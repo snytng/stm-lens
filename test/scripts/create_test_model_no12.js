@@ -1,6 +1,10 @@
 /*
  * Test Case 12: 平行状態のテスト用モデル生成スクリプト (ECMAScript版)
  * astah* Script Editorで実行してください。
+ * 
+ * 注意: スクリプトでは領域(Region)を作成しません。
+ * StateA内に2つのフローが作成されます。実行後、astah*上でStateAに対して「領域の追加」を行い、
+ * 平行状態（上下の領域）に手動で変更してください。
  */
 
 var AstahAPI = com.change_vision.jude.api.inf.AstahAPI;
@@ -27,7 +31,7 @@ try {
     stateA.setEntry("entA");
     stateA.setExit("exA");
     
-    // Region 1 (Implicit via Initial State 1)
+    // Region 1 (Upper)
     var init1Pres = diagramEditor.createInitialPseudostate(stateAPres, new Point2D.Double(120, 100));
     var s1Pres = diagramEditor.createState("S1", stateAPres, new Point2D.Double(160, 100));
     s1Pres.getModel().setEntry("entS1");
@@ -37,7 +41,7 @@ try {
     s2Pres.getModel().setEntry("entS2");
     s2Pres.getModel().setExit("exS2");
     
-    // Region 2 (Implicit via Initial State 2)
+    // Region 2 (Lower)
     var init2Pres = diagramEditor.createInitialPseudostate(stateAPres, new Point2D.Double(120, 200));
     var s3Pres = diagramEditor.createState("S3", stateAPres, new Point2D.Double(160, 200));
     s3Pres.getModel().setEntry("entS3");
@@ -57,23 +61,24 @@ try {
     // Region 1: Init -> S1
     diagramEditor.createTransition(init1Pres, s1Pres);
     // Region 1: S1 -> S2 (e1)
-    var t1 = diagramEditor.createTransition(s1Pres, s2Pres);
-    t1.setLabel("e1");
+    var t1Pres = diagramEditor.createTransition(s1Pres, s2Pres);
+    t1Pres.setLabel("e1");
     
     // Region 2: Init -> S3
     diagramEditor.createTransition(init2Pres, s3Pres);
     // Region 2: S3 -> S4 (e2)
-    var t2 = diagramEditor.createTransition(s3Pres, s4Pres);
-    t2.setLabel("e2");
+    var t2Pres = diagramEditor.createTransition(s3Pres, s4Pres);
+    t2Pres.setLabel("e2");
     
     // Cross Region? No, just independent.
     
     // Exit Composite: StateA -> StateEnd (e3)
-    var t3 = diagramEditor.createTransition(stateAPres, stateEndPres);
-    t3.setLabel("e3");
+    var t3Pres = diagramEditor.createTransition(stateAPres, stateEndPres);
+    t3Pres.setLabel("e3");
 
     transactionManager.endTransaction();
     print("平行状態テスト用モデルの生成が完了しました。");
+    print("注意: スクリプトでは領域を作成していません。手動でStateAに領域を追加してください。");
     
 } catch (e) {
     if (transactionManager.isInTransaction()) {
