@@ -278,3 +278,29 @@
 *   **操作**: "e1 [else]" を選択
 *   **確認事項**: StateC に遷移すること。
 *   **期待ログ**: `[Exit] exA`, `[Entry] entC` (Choiceは通過のみ)
+
+### No.19 遷移パスのLCA計算ロジック修正
+
+#### 準備: テスト用モデルの作成
+*   **外部Choice**: `test/scripts/create_test_model_no19_external_choice.js`
+*   **内部Choice**: `test/scripts/create_test_model_no19_internal_choice.js`
+
+#### テストケース
+
+##### Case 19-1: 外部の擬似状態を経由する遷移
+*   **モデル**: 外部Choiceモデル (`StateA`が`State0`の内部、`Choice`が`State0`の外部)
+*   **操作**:
+    1.  Start -> `State0` (`StateA`)
+    2.  "e1 [else]" を選択 (`StateA` -> `Choice` -> `StateA`)
+*   **確認事項**:
+    *   遷移パスが親状態(`State0`)の境界をまたぐため、`State0`のExit/Entryが実行されること。
+*   **期待ログ**: `[Exit] exA`, `[Exit] exState0`, `[Entry] entState0`, `[Entry] entA` (順序は実装によるが、親のExit/Entryが含まれること)
+
+##### Case 19-2: 内部の擬似状態を経由する遷移
+*   **モデル**: 内部Choiceモデル (`StateA`と`Choice`が`State0`の内部)
+*   **操作**:
+    1.  Start -> `State0` (`StateA`)
+    2.  "e1 [else]" を選択 (`StateA` -> `Choice` -> `StateA`)
+*   **確認事項**:
+    *   遷移パスが親状態(`State0`)の内部で完結するため、`State0`のExit/Entryは実行されないこと。
+*   **期待ログ**: `[Exit] exA`, `[Entry] entA` (親のExit/Entryが含まれないこと)

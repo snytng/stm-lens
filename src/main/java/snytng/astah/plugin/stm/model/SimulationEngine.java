@@ -165,7 +165,7 @@ public class SimulationEngine {
         IVertex target = path.getTarget();
 
         // 1. Find LCA (Least Common Ancestor)
-        IElement lca = findLCA(source, target);
+        IElement lca = findLCA(path);
         
         // Identify states being exited (from source up to, but not including, LCA)
         List<IElement> exitedStates = new ArrayList<>();
@@ -323,16 +323,19 @@ public class SimulationEngine {
 
     // --- Helper Methods for Composite State ---
 
-    private IElement findLCA(IVertex source, IVertex target) {
-        List<IElement> sourceAncestors = getAncestors(source);
-        List<IElement> targetAncestors = getAncestors(target);
+    private IElement findLCA(TransitionPath path) {
+        if (path == null || path.transitions.isEmpty()) return null;
 
-        for (IElement s : sourceAncestors) {
-            if (targetAncestors.contains(s)) {
-                return s;
-            }
+        // Start with ancestors of the first vertex
+        List<IElement> commonAncestors = new ArrayList<>(getAncestors(path.getSource()));
+
+        // Intersect with ancestors of all other vertices involved in the path
+        for (ITransition t : path.transitions) {
+            commonAncestors.retainAll(getAncestors(t.getSource()));
+            commonAncestors.retainAll(getAncestors(t.getTarget()));
         }
-        return null; // Should be StateMachine or null
+
+        return commonAncestors.isEmpty() ? null : commonAncestors.get(0);
     }
 
     private List<IElement> getAncestors(IVertex v) {
