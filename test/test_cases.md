@@ -190,3 +190,31 @@
     5.  "toC_hist" -> StateC (履歴経由)
 *   **確認事項**: StateC内部のC1内部で、初期状態のSub1ではなく、深い階層の **Sub2** に復帰すること。
 *   **期待ログ**: `[Entry] entC1`, `[Entry] entSub2` (Sub1は通らない)
+
+##### Case 15-3: 複合・並行・履歴の組み合わせ
+**（test/scripts/create_test_model_no15_complex.js でモデル作成）**
+
+*   **モデル概要**:
+    *   **StateA**: 開始状態
+    *   **StateB**: 並行状態（Region1, Region2）。
+        *   **Region1**: H* (Deep History) あり。S1 -> S2
+        *   **Region2**: 履歴なし。S3 -> S4
+*   **選定理由**:
+    *   並行状態において、履歴状態を持つリージョンと持たないリージョンの復帰動作の違いを確認する。
+    *   Region1は履歴により状態が復元され、Region2は初期化されることを検証する。
+
+*   **操作**:
+    1.  Start -> StateA
+    2.  "toB" -> StateB (初期状態: S1, S3)
+    3.  "e1" -> S2 (Region1の状態変更)
+    4.  "e2" -> S4 (Region2の状態変更)
+    5.  "back" -> StateA (StateBから退出、履歴保存)
+    6.  "toHistory" -> StateB (履歴へ遷移)
+
+*   **確認事項**:
+    *   StateBに復帰した際、**Region1** (H*あり) は直前の **S2** に復帰すること。
+    *   **Region2** (H*なし) は初期状態経由で **S3** になること (S4には戻らない)。
+*   **期待ログ**:
+    *   `[Entry] entS2`
+    *   `[Entry] entS3`
+    *   (順不同可)

@@ -182,6 +182,9 @@ public class SimulationEngine {
         // 5. Drill down if target is composite (Initial -> ...)
         List<IVertex> nextVertices = drillDown(target, entryActions);
 
+        // 5b. If we entered an Orthogonal State partially, enter other regions
+        completeOrthogonalRegions(nextVertices, lca, entryActions);
+
         // 6. Do Activity
         String doActivity = null;
         // For simplicity, just take the first one's Do activity if available, or join them?
@@ -219,6 +222,43 @@ public class SimulationEngine {
 
     public ITransition getLastTransition() {
         return lastTransition;
+    }
+
+    private void completeOrthogonalRegions(List<IVertex> nextVertices, IElement lca, List<String> entryActions) {
+        // Collect all states being entered (ancestors of nextVertices up to lca)
+        Set<IState> enteredStates = new LinkedHashSet<>();
+        for (IVertex v : nextVertices) {
+            List<IElement> ancestors = getAncestors(v);
+            for (IElement a : ancestors) {
+                if (a.equals(lca)) break;
+                if (a instanceof IState) {
+                    enteredStates.add((IState) a);
+                }
+            }
+        }
+
+        // Check each entered state: if it is orthogonal, ensure all its regions are entered
+        // We iterate a copy to allow modification of nextVertices/enteredStates if needed (though we append to nextVertices)
+        // A simple approach: Iterate enteredStates. If orthogonal, check children.
+        List<IState> statesToCheck = new ArrayList<>(enteredStates);
+        for (IState state : statesToCheck) {
+            if (isOrthogonalState(state)) {
+                IVertex[] subvertexes = state.getSubvertexes();
+                for (IVertex sub : subvertexes) {
+                    if (sub instanceof IState) { // Region
+                        IState region = (IState) sub;
+                        if (!enteredStates.contains(region)) {
+                            // This region is not entered explicitly. Enter it implicitly.
+                            String entry = region.getEntry();
+                            if (entry != null && !entry.isEmpty()) {
+                                entryActions.add(entry);
+                            }
+                            nextVertices.addAll(drillDown(region, entryActions));
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // --- Helper Methods for Composite State ---
@@ -358,34 +398,7 @@ public class SimulationEngine {
         
         List<IVertex> subvertexes = Arrays.asList(sv);
 
-        boolean foundInitial = false;
-        for (IVertex v : subvertexes) {
-            if (v instanceof IPseudostate && ((IPseudostate) v).isInitialPseudostate()) {
-                ITransition[] outgoings = v.getOutgoings();
-                if (outgoings != null && outgoings.length > 0) {
-                    foundInitial = true;
-                    ITransition t = outgoings[0];
-                    String action = t.getAction();
-                    if (action != null && !action.isEmpty()) {
-                        entryActions.add(action); // Add transition action to entry sequence
-                    }
-                    // Recursively drill down
-                    IVertex next = t.getTarget();
-                    // Note: Entry action of 'next' will be collected in the next recursive call if we structured it differently,
-                    // but here we need to manually add it or rely on a unified structure.
-                    // Let's manually add the entry of the next state here before recursing.
-                    if (next instanceof IState) {
-                        String entry = ((IState) next).getEntry();
-                        if (entry != null && !entry.isEmpty()) {
-                            entryActions.add(entry);
-                        }
-                    }
-                    results.addAll(drillDown(next, entryActions));
-                }
-            }
-        }
-        
-        if (!foundInitial) {
+        if (isOrthogonalState(state)) {
             // If no Initial Pseudostate found, assume Orthogonal State (Parallel)
             // Treat sub-states as Regions and drill down into them.
             boolean foundRegion = false;
@@ -403,9 +416,46 @@ public class SimulationEngine {
             if (!foundRegion) {
                 results.add(current);
             }
+        } else {
+            // Standard Composite State with Initial Pseudostate
+            for (IVertex v : subvertexes) {
+                if (v instanceof IPseudostate && ((IPseudostate) v).isInitialPseudostate()) {
+                    ITransition[] outgoings = v.getOutgoings();
+                    if (outgoings != null && outgoings.length > 0) {
+                        ITransition t = outgoings[0];
+                        String action = t.getAction();
+                        if (action != null && !action.isEmpty()) {
+                            entryActions.add(action); // Add transition action to entry sequence
+                        }
+                        // Recursively drill down
+                        IVertex next = t.getTarget();
+                        
+                        if (next instanceof IState) {
+                            String entry = ((IState) next).getEntry();
+                            if (entry != null && !entry.isEmpty()) {
+                                entryActions.add(entry);
+                            }
+                        }
+                        results.addAll(drillDown(next, entryActions));
+                    }
+                }
+            }
         }
         
         return results;
+    }
+
+    private boolean isOrthogonalState(IState state) {
+        IVertex[] subvertexes = state.getSubvertexes();
+        if (subvertexes == null) return false;
+        
+        for (IVertex v : subvertexes) {
+            if (v instanceof IPseudostate && ((IPseudostate) v).isInitialPseudostate()) {
+                return false; // Has Initial -> Not Orthogonal (Simplified logic)
+            }
+        }
+        // If it has subvertexes but no Initial, assume Orthogonal if it has Region-like states
+        return subvertexes.length > 0;
     }
 
     private List<IVertex> restoreDeepHistory(IVertex current, List<String> entryActions) {
