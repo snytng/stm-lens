@@ -122,28 +122,36 @@ public class SimulationEngine {
         IElement lca = findLCA(source, target);
         
         // Identify states being exited (from source up to, but not including, LCA)
-        // We must include active descendants of the source, as exiting a composite state exits all its substates.
         List<IElement> exitedStates = new ArrayList<>();
         
-        for (IVertex active : currentVertices) {
-            if (active.equals(source) || isDescendant(active, source)) {
-                IElement current = active;
-                while (current != null && !current.equals(lca)) {
-                    if (!exitedStates.contains(current)) {
-                        exitedStates.add(current);
-                    }
-                    current = current.getContainer();
-                }
-            }
-        }
-
-        // Ensure source path is included (fallback)
+        // 1. Collect primary exit path (Source -> LCA)
         IElement currentElement = source;
         while (currentElement != null && !currentElement.equals(lca)) {
             if (!exitedStates.contains(currentElement)) {
                 exitedStates.add(currentElement);
             }
             currentElement = currentElement.getContainer();
+        }
+        
+        // 2. Collect all active descendants of any exited state (covers orthogonal regions)
+        for (IVertex active : currentVertices) {
+            boolean isExiting = false;
+            for (IElement exited : exitedStates) {
+                if (active.equals(exited) || isDescendant(active, exited)) {
+                    isExiting = true;
+                    break;
+                }
+            }
+            
+            if (isExiting) {
+                IElement v = active;
+                while (v != null && !v.equals(lca)) {
+                    if (!exitedStates.contains(v)) {
+                        exitedStates.add(v);
+                    }
+                    v = v.getContainer();
+                }
+            }
         }
 
         // Update History before exiting
@@ -321,12 +329,17 @@ public class SimulationEngine {
         for (IElement exited : exitedStates) {
             if (exited instanceof IState) {
                 IState state = (IState) exited;
+                // Do not record history for an orthogonal state itself.
+                // Its history is implicitly the history of its regions.
+                if (isOrthogonalState(state)) {
+                    continue;
+                }
                 // Find the direct child of 'state' that is currently active (or is an ancestor of an active state)
                 for (IVertex active : currentVertices) {
                     IVertex child = getDirectChild(state, active);
                     if (child != null) {
                         historyMap.put(state, child);
-                        break; // Assume one active child per region (simplified for now)
+                        break; // For a non-orthogonal state, there's only one active child path.
                     }
                 }
             }
@@ -353,43 +366,75 @@ public class SimulationEngine {
                 IElement container = ps.getContainer();
                 if (container instanceof IState) {
                     IState parent = (IState) container;
-                    IVertex history = historyMap.get(parent);
-                    
-                    if (history != null) {
-                        // Restore history
-                        if (history instanceof IState) {
-                            String entry = ((IState) history).getEntry();
-                            if (entry != null && !entry.isEmpty()) {
-                                entryActions.add(entry);
+
+                    // Special handling for history transition into an orthogonal state
+                    if (isOrthogonalState(parent)) {
+                        List<IVertex> restoredVertices = new ArrayList<>();
+                        IVertex[] subvertexes = parent.getSubvertexes();
+                        if (subvertexes != null) {
+                            for (IVertex sub : subvertexes) {
+                                if (sub instanceof IState) { // It's a region
+                                    IState region = (IState) sub;
+                                    String entry = region.getEntry();
+                                    if (entry != null && !entry.isEmpty()) {
+                                        entryActions.add(entry);
+                                    }
+                                    if (ps.isDeepHistoryPseudostate()) {
+                                        restoredVertices.addAll(restoreDeepHistory(region, entryActions));
+                                    } else { // Shallow History
+                                        IVertex history = historyMap.get(region);
+                                        if (history != null) {
+                                            restoredVertices.addAll(drillDown(history, entryActions));
+                                        } else {
+                                            restoredVertices.addAll(drillDown(region, entryActions));
+                                        }
+                                    }
+                                }
                             }
                         }
-                        
-                        if (ps.isDeepHistoryPseudostate()) {
-                            return restoreDeepHistory(history, entryActions);
-                        } else {
-                            return drillDown(history, entryActions);
+                        if (!restoredVertices.isEmpty()) {
+                            return restoredVertices;
                         }
+                        // Fallback if no regions were found, enter the state normally.
+                        return drillDown(parent, entryActions);
                     } else {
-                        // No history: Follow default transition (outgoing from History Pseudostate)
-                        ITransition[] outgoings = ps.getOutgoings();
-                        if (outgoings != null && outgoings.length > 0) {
-                            ITransition t = outgoings[0];
-                            String action = t.getAction();
-                            if (action != null && !action.isEmpty()) {
-                                entryActions.add(action);
-                            }
-                            IVertex next = t.getTarget();
-                            if (next instanceof IState) {
-                                String entry = ((IState) next).getEntry();
+                        // Original logic for non-orthogonal states
+                        IVertex history = historyMap.get(parent);
+                        if (history != null) {
+                            // Restore history
+                            if (history instanceof IState) {
+                                String entry = ((IState) history).getEntry();
                                 if (entry != null && !entry.isEmpty()) {
                                     entryActions.add(entry);
                                 }
                             }
-                            return drillDown(next, entryActions);
+                            if (ps.isDeepHistoryPseudostate()) {
+                                return restoreDeepHistory(history, entryActions);
+                            } else {
+                                return drillDown(history, entryActions);
+                            }
                         } else {
-                            // Fallback: If no history and no default transition, behave as if entering the composite state normally.
-                            // UML Spec: Target is semantically equivalent to a Transition to the composite State itself.
-                            return drillDown((IVertex) container, entryActions);
+                            // No history: Follow default transition (outgoing from History Pseudostate)
+                            ITransition[] outgoings = ps.getOutgoings();
+                            if (outgoings != null && outgoings.length > 0) {
+                                ITransition t = outgoings[0];
+                                String action = t.getAction();
+                                if (action != null && !action.isEmpty()) {
+                                    entryActions.add(action);
+                                }
+                                IVertex next = t.getTarget();
+                                if (next instanceof IState) {
+                                    String entry = ((IState) next).getEntry();
+                                    if (entry != null && !entry.isEmpty()) {
+                                        entryActions.add(entry);
+                                    }
+                                }
+                                return drillDown(next, entryActions);
+                            } else {
+                                // Fallback: If no history and no default transition, behave as if entering the composite state normally.
+                                // UML Spec: Target is semantically equivalent to a Transition to the composite State itself.
+                                return drillDown((IVertex) container, entryActions);
+                            }
                         }
                     }
                 }
@@ -511,5 +556,64 @@ public class SimulationEngine {
             current = current.getContainer();
         }
         return false;
+    }
+
+    // --- Debug Utilities ---
+
+    public String getDebugInfo(IStateMachineDiagram diagram) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("=== Simulation Engine Debug Info ===\n");
+        
+        // 1. Current Status
+        sb.append("\n[Current Vertices]\n");
+        for (IVertex v : currentVertices) {
+            sb.append(" - ").append(v.getName()).append(" (").append(v.getClass().getSimpleName()).append(")\n");
+        }
+        
+        // 2. History Map
+        sb.append("\n[History Map]\n");
+        if (historyMap.isEmpty()) {
+            sb.append(" (Empty)\n");
+        } else {
+            for (Map.Entry<IState, IVertex> entry : historyMap.entrySet()) {
+                sb.append(" - State: ").append(entry.getKey().getName())
+                  .append(" -> Last Active: ").append(entry.getValue().getName()).append("\n");
+            }
+        }
+
+        // 3. Model Structure
+        sb.append("\n[Model Structure]\n");
+        if (diagram != null && diagram.getStateMachine() != null) {
+            dumpStateMachine(sb, diagram.getStateMachine(), "");
+        } else {
+            sb.append(" (No Diagram/StateMachine loaded)\n");
+        }
+        
+        return sb.toString();
+    }
+
+    private void dumpStateMachine(StringBuilder sb, IStateMachine sm, String indent) {
+        for (IVertex v : sm.getVertexes()) {
+            dumpVertex(sb, v, indent);
+        }
+    }
+
+    private void dumpVertex(StringBuilder sb, IVertex v, String indent) {
+        sb.append(indent).append("- ").append(v.getName()).append(" (").append(v.getClass().getSimpleName()).append(")\n");
+        
+        // Outgoings
+        for (ITransition t : v.getOutgoings()) {
+            sb.append(indent).append("  -> ").append(t.getTarget().getName()).append(" : ").append(t.getName()).append("\n");
+        }
+
+        // Children (if Composite)
+        if (v instanceof IState) {
+            IVertex[] children = ((IState) v).getSubvertexes();
+            if (children != null && children.length > 0) {
+                for (IVertex child : children) {
+                    dumpVertex(sb, child, indent + "    ");
+                }
+            }
+        }
     }
 }
