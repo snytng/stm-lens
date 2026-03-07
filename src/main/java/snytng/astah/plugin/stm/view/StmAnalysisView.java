@@ -195,46 +195,56 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
                 highlighter.highlight(currents, engine.getPreviousVertices(), engine.getLastTransition());
             }
             eventPanel.removeAll();
-            List<ITransition> transitions = engine.getAvailableTransitions();
-            if (transitions.isEmpty()) {
+            List<SimulationEngine.TransitionPath> paths = engine.getAvailableTransitions();
+            if (paths.isEmpty()) {
                 eventPanel.add(new JLabel("No events available"));
             } else {
-                Map<ITransition, Color> transitionColors = new HashMap<>();
+                Map<ITransition, Color> transitionColors = new HashMap<>(); // Map root transition to color
                 int colorIndex = 0;
-                for (ITransition t : transitions) {
+                for (SimulationEngine.TransitionPath path : paths) {
+                    ITransition root = path.getRoot();
                     boolean hasOtherTransitionsWithSameEvent = false;
-                    String eventName = t.getEvent();
+                    String eventName = root.getEvent();
 
                     if (eventName != null) {
-                        for (ITransition other : transitions) {
-                            if (t != other && eventName.equals(other.getEvent())) {
+                        for (SimulationEngine.TransitionPath other : paths) {
+                            if (path != other && eventName.equals(other.getRoot().getEvent())) {
                                 hasOtherTransitionsWithSameEvent = true;
                                 break;
                             }
                         }
                     }
 
-                    String label = t.getEvent() != null ? t.getEvent() : "(anonymous)";
-                    String guard = t.getGuard();
-                    if (guard != null && !guard.isEmpty()) {
-                        label += " [" + guard + "]";
+                    String label = eventName != null ? eventName : "(anonymous)";
+                    
+                    // Collect guards from the path
+                    StringBuilder guards = new StringBuilder();
+                    for (ITransition t : path.transitions) {
+                        String g = t.getGuard();
+                        if (g != null && !g.isEmpty()) {
+                            if (guards.length() > 0) guards.append(" & ");
+                            guards.append(g);
+                        }
+                    }
+                    
+                    if (guards.length() > 0) {
+                        label += " [" + guards.toString() + "]";
                     } else if (hasOtherTransitionsWithSameEvent) {
-                        //ガードがないときのelseを表現
-                        label += " [else]";
+                        label += " [else]"; // Fallback if no explicit guard but multiple paths
                     }
 
                     if (label == null || label.isEmpty()) {
-                       label = "Transition to " + t.getTarget().getName();
+                       label = "Transition to " + path.getTarget().getName();
                     }
 
                     JButton btn = new JButton(label);
                     Color color = EVENT_COLORS[colorIndex % EVENT_COLORS.length];
                     btn.setBackground(color);
                     btn.setForeground(color.darker().darker().darker());
-                    transitionColors.put(t, color);
+                    transitionColors.put(root, color); // Highlight the root transition on diagram
                     colorIndex++;
 
-                    btn.addActionListener(e -> fireTransition(t));
+                    btn.addActionListener(e -> fireTransition(path));
                     eventPanel.add(btn);
                 }
                 if (highlighter != null) {
@@ -249,8 +259,8 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         eventPanel.repaint();
     }
 
-    private void fireTransition(ITransition t) {
-        SimulationEngine.StepResult result = engine.step(t);
+    private void fireTransition(SimulationEngine.TransitionPath path) {
+        SimulationEngine.StepResult result = engine.step(path);
         if (result == null) return;
 
         printStepResult(result);
@@ -260,7 +270,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     private void printStepResult(SimulationEngine.StepResult result) {
         if (result == null) return;
 
-        String eventName = (result.transition != null) ? result.transition.getEvent() : "Initial";
+        String eventName = (result.path != null) ? result.path.getRoot().getEvent() : "Initial";
         if (eventName == null || eventName.isEmpty()) eventName = "(anonymous)";
         logArea.append(String.format("--- Event: %s ---\n", eventName));
 
@@ -274,8 +284,10 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         }
 
         // 2. Transition Action
-        if (showActions && result.transitionAction != null && !result.transitionAction.isEmpty()) {
-            logArea.append("  [Action] " + result.transitionAction + "\n");
+        if (showActions && result.transitionActions != null) {
+            for (String action : result.transitionActions) {
+                logArea.append("  [Action] " + action + "\n");
+            }
         }
 
         // 3. Target Entry

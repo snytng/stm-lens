@@ -23,22 +23,33 @@ public class SimulationEngine {
     private Map<IState, IVertex> historyMap = new HashMap<>();
     private ITransition lastTransition;
 
+    public static class TransitionPath {
+        public final List<ITransition> transitions;
+        public TransitionPath(List<ITransition> transitions) {
+            this.transitions = transitions;
+        }
+        public ITransition getRoot() { return transitions.get(0); }
+        public ITransition getLast() { return transitions.get(transitions.size() - 1); }
+        public IVertex getSource() { return getRoot().getSource(); }
+        public IVertex getTarget() { return getLast().getTarget(); }
+    }
+
     public static class StepResult {
         public final IVertex source;
         public final IVertex target;
-        public final ITransition transition;
+        public final TransitionPath path;
         public final List<String> exitActions;
-        public final String transitionAction;
+        public final List<String> transitionActions;
         public final List<String> entryActions;
         public final String doActivity;
 
-        public StepResult(IVertex source, IVertex target, ITransition transition,
-                          List<String> exitActions, String transitionAction, List<String> entryActions, String doActivity) {
+        public StepResult(IVertex source, IVertex target, TransitionPath path,
+                          List<String> exitActions, List<String> transitionActions, List<String> entryActions, String doActivity) {
             this.source = source;
             this.target = target;
-            this.transition = transition;
+            this.path = path;
             this.exitActions = exitActions;
-            this.transitionAction = transitionAction;
+            this.transitionActions = transitionActions;
             this.entryActions = entryActions;
             this.doActivity = doActivity;
         }
@@ -75,14 +86,19 @@ public class SimulationEngine {
                                 entryActions.add(entry);
                             }
                         }
+
+                        List<String> transitionActions = new ArrayList<>();
+                        if (transitionAction != null) transitionActions.add(transitionAction);
                         
                         currentVertices.addAll(drillDown(target, entryActions));
                         
                         // Update history for highlighting (Initial state as previous)
                         previousVertices.add(ps);
                         lastTransition = t;
+
+                        TransitionPath path = new TransitionPath(Collections.singletonList(t));
                         
-                        return new StepResult(ps, target, t, exitActions, transitionAction, entryActions, null);
+                        return new StepResult(ps, target, path, exitActions, transitionActions, entryActions, null);
                     } else {
                         currentVertices.add(ps);
                         return new StepResult(ps, ps, null, exitActions, null, entryActions, null);
@@ -93,30 +109,60 @@ public class SimulationEngine {
         return null;
     }
 
-    public List<ITransition> getAvailableTransitions() {
+    public List<TransitionPath> getAvailableTransitions() {
         if (currentVertices.isEmpty()) {
             return Collections.emptyList();
         }
-        Set<ITransition> transitions = new LinkedHashSet<>();
+        List<TransitionPath> paths = new ArrayList<>();
         
         for (IVertex v : currentVertices) {
-            transitions.addAll(Arrays.asList(v.getOutgoings()));
+            collectPaths(v, paths);
+            
             IElement container = v.getContainer();
             while (container != null && !(container instanceof IStateMachine)) {
                 if (container instanceof IState) {
-                    transitions.addAll(Arrays.asList(((IState) container).getOutgoings()));
+                    collectPaths((IVertex) container, paths);
                 }
                 container = container.getContainer();
             }
         }
-        return new ArrayList<>(transitions);
+        return paths;
     }
 
-    public StepResult step(ITransition transition) {
-        if (transition == null) return null;
+    private void collectPaths(IVertex source, List<TransitionPath> paths) {
+        for (ITransition t : source.getOutgoings()) {
+            expandTransition(t, new ArrayList<>(Collections.singletonList(t)), paths);
+        }
+    }
 
-        IVertex source = transition.getSource();
-        IVertex target = transition.getTarget();
+    private void expandTransition(ITransition current, List<ITransition> currentPath, List<TransitionPath> paths) {
+        IVertex target = current.getTarget();
+        if (target instanceof IPseudostate) {
+            IPseudostate ps = (IPseudostate) target;
+            if (ps.isJunctionPseudostate() || ps.isChoicePseudostate()) {
+                ITransition[] outgoings = ps.getOutgoings();
+                if (outgoings == null || outgoings.length == 0) {
+                    // Dead end junction, treat as final target
+                    paths.add(new TransitionPath(currentPath));
+                } else {
+                    for (ITransition out : outgoings) {
+                        if (currentPath.contains(out)) continue; // Prevent loops
+                        List<ITransition> nextPath = new ArrayList<>(currentPath);
+                        nextPath.add(out);
+                        expandTransition(out, nextPath, paths);
+                    }
+                }
+                return;
+            }
+        }
+        paths.add(new TransitionPath(currentPath));
+    }
+
+    public StepResult step(TransitionPath path) {
+        if (path == null || path.transitions.isEmpty()) return null;
+
+        IVertex source = path.getSource();
+        IVertex target = path.getTarget();
 
         // 1. Find LCA (Least Common Ancestor)
         IElement lca = findLCA(source, target);
@@ -181,7 +227,13 @@ public class SimulationEngine {
         collectExitActions(source, lca, exitActions);
 
         // 3. Transition Action
-        String transitionAction = transition.getAction();
+        List<String> transitionActions = new ArrayList<>();
+        for (ITransition t : path.transitions) {
+            String action = t.getAction();
+            if (action != null && !action.isEmpty()) {
+                transitionActions.add(action);
+            }
+        }
 
         // 4. Collect Entry Actions (LCA -> Target)
         List<String> entryActions = new ArrayList<>();
@@ -213,11 +265,11 @@ public class SimulationEngine {
                 previousVertices.add(removed);
             }
         }
-        lastTransition = transition;
+        lastTransition = path.getLast(); // Highlight the last transition in the chain? Or the first? Usually the last one entering target.
         currentVertices.addAll(nextVertices);
 
         // For StepResult, we return the primary target of the transition, though multiple states might be active.
-        return new StepResult(source, target, transition, exitActions, transitionAction, entryActions, doActivity);
+        return new StepResult(source, target, path, exitActions, transitionActions, entryActions, doActivity);
     }
 
     public List<IVertex> getCurrentVertices() {

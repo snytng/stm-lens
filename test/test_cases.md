@@ -233,7 +233,7 @@
     *   `[Entry] entS3`
     *   (順不同可)
 
-### No.17 条件分岐（ジャンクション/選択）の実装
+### No.17 条件分岐（ジャンクション）の実装
 
 #### 準備: テスト用モデルの作成
 **（test/scripts/create_test_model_no17.js をスクリプトエディタで実行すると自動作成できます）**
@@ -255,3 +255,26 @@
 *   **操作**: "e1 [x > 0]" を選択
 *   **確認事項**: StateB に遷移すること。
 *   **期待ログ**: `[Exit] exA`, `[Entry] entB` (Junctionは通過のみ)
+
+### No.18 条件分岐（選択）の実装
+
+#### 準備: テスト用モデルの作成
+**（test/scripts/create_test_model_no18_choice.js をスクリプトエディタで実行すると自動作成できます）**
+
+*   **StateA**: 開始地点
+*   **Choice1**: 選択 (Choice)
+*   **StateB**: 分岐先1 (Guard: x > 0)
+*   **StateC**: 分岐先2 (Guard: else)
+*   遷移: **StateA** -> **Choice1** (Event: e1)
+*   遷移: **Choice1** -> **StateB** (Guard: x > 0)
+*   遷移: **Choice1** -> **StateC** (Guard: else)
+
+#### テストケース
+
+##### Case 18-1: 選択（Choice）による分岐
+*   **操作**: Start -> StateA
+*   **確認事項**:
+    *   イベントボタンとして "e1 [x > 0]" と "e1 [else]" の2つが表示されること。
+*   **操作**: "e1 [else]" を選択
+*   **確認事項**: StateC に遷移すること。
+*   **期待ログ**: `[Exit] exA`, `[Entry] entC` (Choiceは通過のみ)
