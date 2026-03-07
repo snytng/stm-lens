@@ -279,28 +279,45 @@
 *   **確認事項**: StateC に遷移すること。
 *   **期待ログ**: `[Exit] exA`, `[Entry] entC` (Choiceは通過のみ)
 
-### No.19 遷移パスのLCA計算ロジック修正
+### No.19 時間遷移イベント（タイマー）の実装
 
 #### 準備: テスト用モデルの作成
-*   **外部Choice**: `test/scripts/create_test_model_no19_external_choice.js`
-*   **内部Choice**: `test/scripts/create_test_model_no19_internal_choice.js`
+**（test/scripts/create_test_model_no19.js をスクリプトエディタで実行すると自動作成できます）**
+
+*   **StateA**: 開始地点
+*   **StateB**: 遷移先
+*   遷移: **StateA** -> **StateB** (Event: tm(1000))
 
 #### テストケース
 
-##### Case 19-1: 外部の擬似状態を経由する遷移
-*   **モデル**: 外部Choiceモデル (`StateA`が`State0`の内部、`Choice`が`State0`の外部)
-*   **操作**:
-    1.  Start -> `State0` (`StateA`)
-    2.  "e1 [else]" を選択 (`StateA` -> `Choice` -> `StateA`)
+##### Case 19-1: 時間経過による自動遷移
+*   **操作**: Start -> StateA
 *   **確認事項**:
-    *   遷移パスが親状態(`State0`)の境界をまたぐため、`State0`のExit/Entryが実行されること。
-*   **期待ログ**: `[Exit] exA`, `[Exit] exState0`, `[Entry] entState0`, `[Entry] entA` (順序は実装によるが、親のExit/Entryが含まれること)
+    *   StateAに遷移後、約1000ms経過すると自動的にStateBへ遷移すること。
+    *   ログに `[Timer] tm(1000) fired` 等が表示されること。
+    *   (高速モード実装後) 高速モードONの場合、待ち時間なしで遷移すること。
 
-##### Case 19-2: 内部の擬似状態を経由する遷移
-*   **モデル**: 内部Choiceモデル (`StateA`と`Choice`が`State0`の内部)
+### No.20 テスト記録・再生機能の実装
+
+#### 準備: テスト用モデルの作成
+**（test/scripts/create_test_model_no20.js をスクリプトエディタで実行すると自動作成できます）**
+
+*   **StateA**: 開始地点
+*   **StateB**: 中間地点
+*   **StateC**: 終了地点
+*   遷移: **StateA** -> **StateB** (Event: e1)
+*   遷移: **StateB** -> **StateC** (Event: e2)
+
+#### テストケース
+
+##### Case 20-1: テストの記録と再生
 *   **操作**:
-    1.  Start -> `State0` (`StateA`)
-    2.  "e1 [else]" を選択 (`StateA` -> `Choice` -> `StateA`)
+    1.  Start -> StateA
+    2.  [Record] ボタンを押下（記録開始）。
+    3.  "e1" -> StateB, "e2" -> StateC と遷移させる。
+    4.  [Stop] ボタンを押下し、テスト名 "Test1" で保存。
+    5.  [Reset] ボタンを押下。
+    6.  テストケース一覧から "Test1" を選択し、[Play] ボタンを押下。
 *   **確認事項**:
-    *   遷移パスが親状態(`State0`)の内部で完結するため、`State0`のExit/Entryは実行されないこと。
-*   **期待ログ**: `[Exit] exA`, `[Entry] entA` (親のExit/Entryが含まれないこと)
+    *   自動的に StateA -> StateB -> StateC と遷移し、StateC で停止すること。
+    *   ログに再生による遷移であることが示されること（任意）。

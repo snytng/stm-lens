@@ -4,14 +4,21 @@ import com.change_vision.jude.api.inf.AstahAPI;
 import com.change_vision.jude.api.inf.model.IDiagram;
 import com.change_vision.jude.api.inf.model.IStateMachineDiagram;
 import com.change_vision.jude.api.inf.model.IState;
+import com.change_vision.jude.api.inf.model.IStateMachine;
 import com.change_vision.jude.api.inf.model.ITransition;
 import com.change_vision.jude.api.inf.model.IVertex;
 import com.change_vision.jude.api.inf.project.ProjectAccessor;
 import com.change_vision.jude.api.inf.ui.IPluginExtraTabView;
 import com.change_vision.jude.api.inf.ui.ISelectionListener;
 import com.change_vision.jude.api.inf.view.IDiagramViewManager;
+import com.change_vision.jude.api.inf.view.IDiagramEditorSelectionEvent;
+import com.change_vision.jude.api.inf.view.IDiagramEditorSelectionListener;
+import com.change_vision.jude.api.inf.view.IViewManager;
+import com.change_vision.jude.api.inf.view.IEntitySelectionEvent;
+import com.change_vision.jude.api.inf.view.IEntitySelectionListener;
 import snytng.astah.plugin.stm.model.DiagramHighlighter;
 import snytng.astah.plugin.stm.model.SimulationEngine;
+import snytng.astah.plugin.stm.model.TestManager;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -19,9 +26,11 @@ import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
+import javax.swing.JComboBox;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
+import javax.swing.SwingUtilities;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
@@ -42,10 +51,48 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     private JLabel stateLabel;
     private JCheckBox showActionsCheckbox;
     private JPanel eventPanel;
+    
+    // Test UI
+    private JButton recordButton;
+    private JButton stopButton;
+    private JButton playButton;
+    private JButton infoButton;
+    private JButton renameButton;
+    private JButton deleteButton;
+    private JComboBox<String> testCaseCombo;
+    
     private JTextArea logArea;
 
     private final SimulationEngine engine = new SimulationEngine();
+    private final TestManager testManager = new TestManager();
     private DiagramHighlighter highlighter;
+    
+    private final IDiagramEditorSelectionListener diagramEditorSelectionListener = e -> {
+        try {
+            ProjectAccessor projectAccessor = AstahAPI.getAstahAPI().getProjectAccessor();
+            IDiagramViewManager viewManager = projectAccessor.getViewManager().getDiagramViewManager();
+            IDiagram currentDiagram = viewManager.getCurrentDiagram();
+            SwingUtilities.invokeLater(() -> 
+                updateTestCaseListIfStateMachineDiagram(currentDiagram)
+            );
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
+    };
+
+    private final IEntitySelectionListener entitySelectionListener = new IEntitySelectionListener() {
+        @Override
+        public void entitySelectionChanged(IEntitySelectionEvent e) {
+            try {
+                ProjectAccessor projectAccessor = AstahAPI.getAstahAPI().getProjectAccessor();
+                IDiagramViewManager viewManager = projectAccessor.getViewManager().getDiagramViewManager();
+                IDiagram currentDiagram = viewManager.getCurrentDiagram();
+                SwingUtilities.invokeLater(() -> updateTestCaseListIfStateMachineDiagram(currentDiagram));
+            } catch (Exception ex) {
+                ex.printStackTrace();
+            }
+        }
+    };
 
     private static final Color[] EVENT_COLORS = {
         new Color(255, 180, 180), // Red-ish
@@ -89,7 +136,42 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         topPanel.add(Box.createHorizontalStrut(10));
         topPanel.add(showActionsCheckbox);
 
-        add(topPanel, BorderLayout.NORTH);
+        // Test Panel
+        JPanel testPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        testPanel.setBorder(BorderFactory.createTitledBorder("Test"));
+        
+        recordButton = new JButton("Record");
+        stopButton = new JButton("Stop");
+        playButton = new JButton("Play");
+        infoButton = new JButton("Info");
+        renameButton = new JButton("Rename");
+        deleteButton = new JButton("Delete");
+        testCaseCombo = new JComboBox<>();
+        
+        stopButton.setEnabled(false);
+        
+        recordButton.addActionListener(e -> startRecording());
+        stopButton.addActionListener(e -> stopRecording());
+        playButton.addActionListener(e -> playTest());
+        infoButton.addActionListener(e -> showTestInfo());
+        renameButton.addActionListener(e -> renameTest());
+        deleteButton.addActionListener(e -> deleteTest());
+        
+        testPanel.add(recordButton);
+        testPanel.add(stopButton);
+        testPanel.add(new JLabel("Saved Tests:"));
+        testPanel.add(testCaseCombo);
+        testPanel.add(playButton);
+        testPanel.add(infoButton);
+        testPanel.add(renameButton);
+        testPanel.add(deleteButton);
+
+        // Combine Top and Test
+        JPanel northPanel = new JPanel(new BorderLayout());
+        northPanel.add(topPanel, BorderLayout.NORTH);
+        northPanel.add(testPanel, BorderLayout.SOUTH);
+
+        add(northPanel, BorderLayout.NORTH);
 
         // 2. Center Panel (Events)
         eventPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
@@ -126,6 +208,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
                 logArea.setText("Simulation started.\n");
                 printStepResult(result);
                 refreshUI();
+                updateTestCaseList((IStateMachineDiagram) currentDiagram);
             } else {
                 logArea.append("Please open a State Machine Diagram.\n");
             }
@@ -146,6 +229,116 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         eventPanel.revalidate();
         eventPanel.repaint();
         logArea.setText("Simulation reset.\n");
+    }
+    
+    private void startRecording() {
+        testManager.startRecording();
+        recordButton.setEnabled(false);
+        stopButton.setEnabled(true);
+        logArea.append("Recording started...\n");
+    }
+    
+    private void stopRecording() {
+        testManager.stopRecording();
+        recordButton.setEnabled(true);
+        stopButton.setEnabled(false);
+        
+        String name = JOptionPane.showInputDialog(this, "Enter test case name:");
+        if (name != null && !name.trim().isEmpty()) {
+            try {
+                ProjectAccessor projectAccessor = AstahAPI.getAstahAPI().getProjectAccessor();
+                IDiagram currentDiagram = projectAccessor.getViewManager().getDiagramViewManager().getCurrentDiagram();
+                if (currentDiagram instanceof IStateMachineDiagram) {
+                    IStateMachine sm = ((IStateMachineDiagram) currentDiagram).getStateMachine();
+                    testManager.saveTestCase(name, sm);
+                    logArea.append("Test case '" + name + "' saved to StateMachine '" + sm.getName() + "'.\n");
+                    updateTestCaseList((IStateMachineDiagram) currentDiagram);
+                }
+            } catch (Exception e) {
+                logArea.append("Failed to save test case: " + e.getMessage() + "\n");
+                e.printStackTrace();
+            }
+        }
+    }
+    
+    private void playTest() {
+        String selectedTest = (String) testCaseCombo.getSelectedItem();
+        if (selectedTest == null) return;
+        
+        resetSimulation();
+        startSimulation(); // Start fresh
+        
+        try {
+            ProjectAccessor projectAccessor = AstahAPI.getAstahAPI().getProjectAccessor();
+            IDiagram currentDiagram = projectAccessor.getViewManager().getDiagramViewManager().getCurrentDiagram();
+            if (currentDiagram instanceof IStateMachineDiagram) {
+                logArea.append("Playing test case '" + selectedTest + "'...\n");
+                testManager.playTestCase(selectedTest, ((IStateMachineDiagram) currentDiagram).getStateMachine(), engine, this::refreshUI);
+                logArea.append("Test case playback finished.\n");
+                refreshUI();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void showTestInfo() {
+        String selectedTest = (String) testCaseCombo.getSelectedItem();
+        if (selectedTest == null) return;
+        
+        try {
+            ProjectAccessor projectAccessor = AstahAPI.getAstahAPI().getProjectAccessor();
+            IDiagram currentDiagram = projectAccessor.getViewManager().getDiagramViewManager().getCurrentDiagram();
+            if (currentDiagram instanceof IStateMachineDiagram) {
+                String info = testManager.getTestCaseInfo(selectedTest, ((IStateMachineDiagram) currentDiagram).getStateMachine());
+                logArea.append("--- Test Info ---\n" + info + "\n");
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void renameTest() {
+        String selectedTest = (String) testCaseCombo.getSelectedItem();
+        if (selectedTest == null) return;
+
+        String newName = JOptionPane.showInputDialog(this, "Enter new name for '" + selectedTest + "':", selectedTest);
+        if (newName != null && !newName.trim().isEmpty() && !newName.equals(selectedTest)) {
+            try {
+                ProjectAccessor projectAccessor = AstahAPI.getAstahAPI().getProjectAccessor();
+                IDiagram currentDiagram = projectAccessor.getViewManager().getDiagramViewManager().getCurrentDiagram();
+                if (currentDiagram instanceof IStateMachineDiagram) {
+                    testManager.renameTestCase(selectedTest, newName, ((IStateMachineDiagram) currentDiagram).getStateMachine());
+                    logArea.append("Test case renamed: " + selectedTest + " -> " + newName + "\n");
+                    updateTestCaseList((IStateMachineDiagram) currentDiagram);
+                    testCaseCombo.setSelectedItem(newName);
+                }
+            } catch (Exception e) {
+                logArea.append("Error renaming test case: " + e.getMessage() + "\n");
+                e.printStackTrace();
+            }
+        }
+    }
+
+    private void deleteTest() {
+        String selectedTest = (String) testCaseCombo.getSelectedItem();
+        if (selectedTest == null) return;
+
+        int confirm = JOptionPane.showConfirmDialog(this, "Are you sure you want to delete '" + selectedTest + "'?", "Delete Test Case", JOptionPane.YES_NO_OPTION);
+        if (confirm == JOptionPane.YES_OPTION) {
+            try {
+                ProjectAccessor projectAccessor = AstahAPI.getAstahAPI().getProjectAccessor();
+                IDiagram currentDiagram = projectAccessor.getViewManager().getDiagramViewManager().getCurrentDiagram();
+                if (currentDiagram instanceof IStateMachineDiagram) {
+                    testManager.deleteTestCase(selectedTest, ((IStateMachineDiagram) currentDiagram).getStateMachine());
+                    logArea.append("Test case deleted: " + selectedTest + "\n");
+                    updateTestCaseList((IStateMachineDiagram) currentDiagram);
+                }
+            } catch (Exception e) {
+                logArea.append("Error deleting test case: " + e.getMessage() + "\n");
+                e.printStackTrace();
+            }
+        }
     }
 
     private void copyDebugInfo() {
@@ -174,6 +367,16 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         } catch (Exception e) {
             logArea.append("Error copying debug info: " + e.getMessage() + "\n");
             e.printStackTrace();
+        }
+    }
+    
+    private void updateTestCaseList(IStateMachineDiagram diagram) {
+        testCaseCombo.removeAllItems();
+        if (diagram != null) {
+            List<String> tests = testManager.loadTestCaseNames(diagram.getStateMachine());
+            for (String test : tests) {
+                testCaseCombo.addItem(test);
+            }
         }
     }
 
@@ -261,6 +464,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
 
     private void fireTransition(SimulationEngine.TransitionPath path) {
         SimulationEngine.StepResult result = engine.step(path);
+        testManager.recordTransition(path);
         if (result == null) return;
 
         printStepResult(result);
@@ -327,6 +531,53 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
 
     @Override
     public void activated() {
+        try {
+            ProjectAccessor projectAccessor = AstahAPI.getAstahAPI().getProjectAccessor();
+            IDiagramViewManager viewManager = projectAccessor.getViewManager().getDiagramViewManager();
+            IDiagram currentDiagram = viewManager.getCurrentDiagram();
+
+            if (currentDiagram instanceof IStateMachineDiagram) {
+                updateTestCaseList((IStateMachineDiagram) currentDiagram);
+            } else {
+                testCaseCombo.removeAllItems();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void updateTestCaseListIfStateMachineDiagram(IDiagram diagram) {
+        if (diagram instanceof IStateMachineDiagram) {
+            updateTestCaseList((IStateMachineDiagram) diagram);
+        } else {
+            testCaseCombo.removeAllItems();
+        }
+    }
+
+    @Override
+    public void addNotify() {
+        super.addNotify();
+        try {
+            ProjectAccessor projectAccessor = AstahAPI.getAstahAPI().getProjectAccessor();
+            IDiagramViewManager viewManager = projectAccessor.getViewManager().getDiagramViewManager();
+            viewManager.addDiagramEditorSelectionListener(diagramEditorSelectionListener);
+            viewManager.addEntitySelectionListener(entitySelectionListener);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    @Override
+    public void removeNotify() {
+        try {
+            ProjectAccessor projectAccessor = AstahAPI.getAstahAPI().getProjectAccessor();
+            IDiagramViewManager viewManager = projectAccessor.getViewManager().getDiagramViewManager();
+            viewManager.removeDiagramEditorSelectionListener(diagramEditorSelectionListener);
+            viewManager.removeEntitySelectionListener(entitySelectionListener);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        super.removeNotify();
     }
 
     @Override
