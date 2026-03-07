@@ -12,12 +12,15 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.Map;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 
 public class SimulationEngine {
 
     private List<IVertex> currentVertices = new ArrayList<>();
     private List<IVertex> previousVertices = new ArrayList<>();
+    private Map<IState, IVertex> historyMap = new HashMap<>();
     private ITransition lastTransition;
 
     public static class StepResult {
@@ -44,6 +47,7 @@ public class SimulationEngine {
     public StepResult start(IStateMachineDiagram diagram) {
         currentVertices.clear();
         previousVertices.clear();
+        historyMap.clear();
         lastTransition = null;
 
         if (diagram == null) return null;
@@ -118,13 +122,32 @@ public class SimulationEngine {
         IElement lca = findLCA(source, target);
         
         // Identify states being exited (from source up to, but not including, LCA)
+        // We must include active descendants of the source, as exiting a composite state exits all its substates.
         List<IElement> exitedStates = new ArrayList<>();
-        IVertex v = source;
-        while (v != null && v != lca) {
-            exitedStates.add(v);
-            IElement container = v.getContainer();
-            v = (container instanceof IVertex) ? (IVertex) container : null;
+        
+        for (IVertex active : currentVertices) {
+            if (active.equals(source) || isDescendant(active, source)) {
+                IElement current = active;
+                while (current != null && !current.equals(lca)) {
+                    if (!exitedStates.contains(current)) {
+                        exitedStates.add(current);
+                    }
+                    current = current.getContainer();
+                }
+            }
         }
+
+        // Ensure source path is included (fallback)
+        IElement currentElement = source;
+        while (currentElement != null && !currentElement.equals(lca)) {
+            if (!exitedStates.contains(currentElement)) {
+                exitedStates.add(currentElement);
+            }
+            currentElement = currentElement.getContainer();
+        }
+
+        // Update History before exiting
+        updateHistory(exitedStates);
         
         // 2. Collect Exit Actions
         List<String> exitActions = new ArrayList<>();
@@ -254,7 +277,72 @@ public class SimulationEngine {
         actions.addAll(temp);
     }
 
+    private void updateHistory(List<IElement> exitedStates) {
+        for (IElement exited : exitedStates) {
+            if (exited instanceof IState) {
+                IState state = (IState) exited;
+                // Find the direct child of 'state' that is currently active (or is an ancestor of an active state)
+                for (IVertex active : currentVertices) {
+                    if (isDescendant(active, state)) {
+                        // Find the direct child
+                        IVertex child = getDirectChild(state, active);
+                        if (child != null) {
+                            historyMap.put(state, child);
+                        }
+                        break; // Assume one active child per region (simplified for now)
+                    } else {
+                        IElement container = active.getContainer();
+                        if (container != null && container.equals(state)) {
+                             historyMap.put(state, active);
+                             break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private IVertex getDirectChild(IState parent, IVertex descendant) {
+        IElement current = descendant;
+        while (current != null) {
+            IElement container = current.getContainer();
+            if (container != null && container.equals(parent)) {
+                return (current instanceof IVertex) ? (IVertex) current : null;
+            }
+            current = container;
+        }
+        return null;
+    }
+
     private List<IVertex> drillDown(IVertex current, List<String> entryActions) {
+        // Handle History Pseudostates
+        if (current instanceof IPseudostate) {
+            IPseudostate ps = (IPseudostate) current;
+            if (ps.isShallowHistoryPseudostate() || ps.isDeepHistoryPseudostate()) {
+                IElement container = ps.getContainer();
+                if (container instanceof IState) {
+                    IState parent = (IState) container;
+                    IVertex history = historyMap.get(parent);
+                    
+                    if (history != null) {
+                        // Restore history
+                        if (history instanceof IState) {
+                            String entry = ((IState) history).getEntry();
+                            if (entry != null && !entry.isEmpty()) {
+                                entryActions.add(entry);
+                            }
+                        }
+                        
+                        if (ps.isDeepHistoryPseudostate()) {
+                            return restoreDeepHistory(history, entryActions);
+                        } else {
+                            return drillDown(history, entryActions);
+                        }
+                    }
+                }
+            }
+        }
+
         List<IVertex> results = new ArrayList<>();
         if (!(current instanceof IState)) {
             results.add(current);
@@ -318,6 +406,37 @@ public class SimulationEngine {
         }
         
         return results;
+    }
+
+    private List<IVertex> restoreDeepHistory(IVertex current, List<String> entryActions) {
+        List<IVertex> results = new ArrayList<>();
+        
+        if (!(current instanceof IState)) {
+            results.add(current);
+            return results;
+        }
+        
+        IState state = (IState) current;
+        // Check if we have history for this state
+        IVertex historyChild = historyMap.get(state);
+        
+        if (historyChild != null) {
+            // We have history, follow it
+            if (historyChild instanceof IState) {
+                String entry = ((IState) historyChild).getEntry();
+                if (entry != null && !entry.isEmpty()) {
+                    entryActions.add(entry);
+                }
+                // Recursively restore
+                return restoreDeepHistory(historyChild, entryActions);
+            } else {
+                results.add(historyChild);
+                return results;
+            }
+        } else {
+            // No history for this level, revert to normal drillDown (Initial)
+            return drillDown(current, entryActions);
+        }
     }
 
     private boolean isDescendant(IVertex v, IElement ancestor) {

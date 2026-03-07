@@ -146,3 +146,47 @@
     *   イベントボタン (e1, e2, e3, e4) がそれぞれ異なる背景色で表示されること。
     *   イベントボタンの文字色が背景色に合わせて調整されていること（濃い色など）。
     *   図上の遷移矢印 (e1, e2, e3, e4) が、対応するボタンと同じ色でハイライトされること。
+
+### No.15 履歴状態の実装
+
+#### 準備: テスト用モデルの作成
+**（test/scripts/create_test_model_no15.js をスクリプトエディタで実行すると自動作成できます）**
+
+*   **StateA**: 開始地点
+*   **StateB**: 複合状態 (浅い履歴テスト用)
+    *   **H**: 浅い履歴 (Shallow History)
+    *   **Initial** -> **S1**
+    *   **S1** -> **S2** (Event: e1)
+*   **StateC**: 複合状態 (深い履歴テスト用)
+    *   **H***: 深い履歴 (Deep History)
+    *   **Initial** -> **C1** (複合状態)
+        *   **Initial** -> **Sub1**
+        *   **Sub1** -> **Sub2** (Event: e2)
+*   遷移: **StateA** -> **StateB** (Event: toB_init) ※初期状態へ
+*   遷移: **StateA** -> **StateB.H** (Event: toB_hist) ※履歴へ
+*   遷移: **StateB** -> **StateA** (Event: back)
+*   遷移: **StateA** -> **StateC** (Event: toC_init) ※初期状態へ
+*   遷移: **StateA** -> **StateC.H*** (Event: toC_hist) ※履歴へ
+*   遷移: **StateC** -> **StateA** (Event: back)
+
+#### テストケース
+
+##### Case 15-1: 浅い履歴 (Shallow History) の動作
+*   **操作**:
+    1.  Start -> StateA
+    2.  "toB_init" -> StateB (S1)
+    3.  "e1" -> S2
+    4.  "back" -> StateA
+    5.  "toB_hist" -> StateB (履歴経由)
+*   **確認事項**: StateB内部で、初期状態のS1ではなく、直前の **S2** に復帰すること。
+*   **期待ログ**: `[Entry] entS2` (S1は通らない)
+
+##### Case 15-2: 深い履歴 (Deep History) の動作
+*   **操作**:
+    1.  Start -> StateA
+    2.  "toC_init" -> StateC (C1 -> Sub1)
+    3.  "e2" -> Sub2
+    4.  "back" -> StateA
+    5.  "toC_hist" -> StateC (履歴経由)
+*   **確認事項**: StateC内部のC1内部で、初期状態のSub1ではなく、深い階層の **Sub2** に復帰すること。
+*   **期待ログ**: `[Entry] entC1`, `[Entry] entSub2` (Sub1は通らない)
