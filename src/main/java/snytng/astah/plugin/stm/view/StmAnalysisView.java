@@ -18,6 +18,7 @@ import javax.swing.Box;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JLabel;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
@@ -25,6 +26,9 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.FlowLayout;
+import java.awt.Toolkit;
+import java.awt.datatransfer.Clipboard;
+import java.awt.datatransfer.StringSelection;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -34,6 +38,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
 
     private JButton startButton;
     private JButton resetButton;
+    private JButton copyDebugButton;
     private JLabel stateLabel;
     private JCheckBox showActionsCheckbox;
     private JPanel eventPanel;
@@ -68,14 +73,17 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         JPanel topPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         startButton = new JButton("Start");
         resetButton = new JButton("Reset");
+        copyDebugButton = new JButton("Copy Debug");
         stateLabel = new JLabel("Current State: -");
         showActionsCheckbox = new JCheckBox("Show Actions", true);
 
         startButton.addActionListener(e -> startSimulation());
         resetButton.addActionListener(e -> resetSimulation());
+        copyDebugButton.addActionListener(e -> copyDebugInfo());
 
         topPanel.add(startButton);
         topPanel.add(resetButton);
+        topPanel.add(copyDebugButton);
         topPanel.add(Box.createHorizontalStrut(20));
         topPanel.add(stateLabel);
         topPanel.add(Box.createHorizontalStrut(10));
@@ -138,6 +146,35 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         eventPanel.revalidate();
         eventPanel.repaint();
         logArea.setText("Simulation reset.\n");
+    }
+
+    private void copyDebugInfo() {
+        try {
+            ProjectAccessor projectAccessor = AstahAPI.getAstahAPI().getProjectAccessor();
+            IDiagramViewManager viewManager = projectAccessor.getViewManager().getDiagramViewManager();
+            IDiagram currentDiagram = viewManager.getCurrentDiagram();
+
+            if (currentDiagram instanceof IStateMachineDiagram) {
+                String debugInfo = engine.getDebugInfo((IStateMachineDiagram) currentDiagram);
+                String logContent = logArea.getText();
+
+                StringBuilder sb = new StringBuilder();
+                sb.append(debugInfo);
+                sb.append("\n\n=== Event & Action Log ===\n");
+                sb.append(logContent);
+
+                StringSelection selection = new StringSelection(sb.toString());
+                Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+                clipboard.setContents(selection, selection);
+
+                JOptionPane.showMessageDialog(this, "Debug info copied to clipboard.");
+            } else {
+                JOptionPane.showMessageDialog(this, "Please open a State Machine Diagram.");
+            }
+        } catch (Exception e) {
+            logArea.append("Error copying debug info: " + e.getMessage() + "\n");
+            e.printStackTrace();
+        }
     }
 
     private void refreshUI() {
