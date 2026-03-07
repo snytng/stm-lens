@@ -323,19 +323,10 @@ public class SimulationEngine {
                 IState state = (IState) exited;
                 // Find the direct child of 'state' that is currently active (or is an ancestor of an active state)
                 for (IVertex active : currentVertices) {
-                    if (isDescendant(active, state)) {
-                        // Find the direct child
-                        IVertex child = getDirectChild(state, active);
-                        if (child != null) {
-                            historyMap.put(state, child);
-                        }
+                    IVertex child = getDirectChild(state, active);
+                    if (child != null) {
+                        historyMap.put(state, child);
                         break; // Assume one active child per region (simplified for now)
-                    } else {
-                        IElement container = active.getContainer();
-                        if (container != null && container.equals(state)) {
-                             historyMap.put(state, active);
-                             break;
-                        }
                     }
                 }
             }
@@ -377,6 +368,28 @@ public class SimulationEngine {
                             return restoreDeepHistory(history, entryActions);
                         } else {
                             return drillDown(history, entryActions);
+                        }
+                    } else {
+                        // No history: Follow default transition (outgoing from History Pseudostate)
+                        ITransition[] outgoings = ps.getOutgoings();
+                        if (outgoings != null && outgoings.length > 0) {
+                            ITransition t = outgoings[0];
+                            String action = t.getAction();
+                            if (action != null && !action.isEmpty()) {
+                                entryActions.add(action);
+                            }
+                            IVertex next = t.getTarget();
+                            if (next instanceof IState) {
+                                String entry = ((IState) next).getEntry();
+                                if (entry != null && !entry.isEmpty()) {
+                                    entryActions.add(entry);
+                                }
+                            }
+                            return drillDown(next, entryActions);
+                        } else {
+                            // Fallback: If no history and no default transition, behave as if entering the composite state normally.
+                            // UML Spec: Target is semantically equivalent to a Transition to the composite State itself.
+                            return drillDown((IVertex) container, entryActions);
                         }
                     }
                 }

@@ -218,3 +218,17 @@
     *   `[Entry] entS2`
     *   `[Entry] entS3`
     *   (順不同可)
+
+##### Case 15-4: 履歴なしでの履歴状態への遷移
+*   **モデル**: Case 15-3 と同じ (TestModel_No15_Complex)
+*   **操作**:
+    1.  Start -> StateA
+    2.  "toHistory" -> StateB (履歴へ遷移) ※一度もStateBに入っていない状態で実行
+*   **確認事項**:
+    *   履歴がないため、デフォルトの挙動として初期状態から開始されること。
+    *   Region1 (H*あり) は S1 (初期状態) になること。
+    *   Region2 (H*なし) は S3 (初期状態) になること。
+*   **期待ログ**:
+    *   `[Entry] entS1`
+    *   `[Entry] entS3`
+    *   (順不同可)
