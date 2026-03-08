@@ -190,6 +190,22 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         logScrollPane.setBorder(BorderFactory.createTitledBorder("Log"));
 
         add(logScrollPane, BorderLayout.SOUTH);
+
+        // Add MouseListener to refresh UI when user hovers over the view
+        // This is a workaround because astah* API does not provide an event for active diagram change.
+        this.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseEntered(java.awt.event.MouseEvent e) {
+                try {
+                    ProjectAccessor projectAccessor = AstahAPI.getAstahAPI().getProjectAccessor();
+                    IDiagramViewManager viewManager = projectAccessor.getViewManager().getDiagramViewManager();
+                    IDiagram currentDiagram = viewManager.getCurrentDiagram();
+                    updateTestCaseListIfStateMachineDiagram(currentDiagram);
+                } catch (Exception ex) {
+                    ex.printStackTrace();
+                }
+            }
+        });
     }
 
     private void startSimulation() {
