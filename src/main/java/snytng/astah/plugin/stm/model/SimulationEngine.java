@@ -38,6 +38,7 @@ public class SimulationEngine {
 
     public void setFastMode(boolean fast) {
         timerManager.setFastMode(fast);
+        checkTimers();
     }
 
     public boolean isFastMode() {
