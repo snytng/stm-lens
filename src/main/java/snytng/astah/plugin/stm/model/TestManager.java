@@ -109,7 +109,7 @@ public class TestManager {
             }
             
             if (matchedPath != null) {
-                engine.step(matchedPath);
+                engine.step(matchedPath, null);
                 if (onStep != null) onStep.run();
             } else {
                 System.err.println("Playback failed: Matching transition not found for step " + stepData);

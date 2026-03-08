@@ -50,6 +50,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     private JButton copyDebugButton;
     private JLabel stateLabel;
     private JCheckBox showActionsCheckbox;
+    private JCheckBox fastModeCheckbox;
     private JPanel eventPanel;
     
     // Test UI
@@ -111,6 +112,14 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
             this.highlighter = null;
             logArea.append("Error: astah* API not found.\n");
         }
+        
+        engine.setStepListener(result -> {
+            if (result != null) {
+                testManager.recordTransition(result.path);
+                printStepResult(result);
+                refreshUI();
+            }
+        });
     }
 
     private void initComponents() {
@@ -123,10 +132,12 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         copyDebugButton = new JButton("Copy Debug");
         stateLabel = new JLabel("Current State: -");
         showActionsCheckbox = new JCheckBox("Show Actions", true);
+        fastModeCheckbox = new JCheckBox("Fast Mode", false);
 
         startButton.addActionListener(e -> startSimulation());
         resetButton.addActionListener(e -> resetSimulation());
         copyDebugButton.addActionListener(e -> copyDebugInfo());
+        fastModeCheckbox.addActionListener(e -> engine.setFastMode(fastModeCheckbox.isSelected()));
 
         topPanel.add(startButton);
         topPanel.add(resetButton);
@@ -135,6 +146,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         topPanel.add(stateLabel);
         topPanel.add(Box.createHorizontalStrut(10));
         topPanel.add(showActionsCheckbox);
+        topPanel.add(fastModeCheckbox);
 
         // Test Panel
         JPanel testPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
@@ -479,7 +491,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     }
 
     private void fireTransition(SimulationEngine.TransitionPath path) {
-        SimulationEngine.StepResult result = engine.step(path);
+        SimulationEngine.StepResult result = engine.step(path, null);
         testManager.recordTransition(path);
         if (result == null) return;
 
@@ -492,6 +504,9 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
 
         String eventName = (result.path != null) ? result.path.getRoot().getEvent() : "Initial";
         if (eventName == null || eventName.isEmpty()) eventName = "(anonymous)";
+        if (result.note != null && !result.note.isEmpty()) {
+            eventName += " " + result.note;
+        }
         logArea.append(String.format("--- Event: %s ---\n", eventName));
 
         boolean showActions = showActionsCheckbox.isSelected();

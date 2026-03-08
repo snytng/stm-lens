@@ -15,6 +15,7 @@ import java.util.Set;
 import java.util.Map;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
+import java.util.function.Consumer;
 
 public class SimulationEngine {
 
@@ -22,6 +23,17 @@ public class SimulationEngine {
     private List<IVertex> previousVertices = new ArrayList<>();
     private Map<IState, IVertex> historyMap = new HashMap<>();
     private ITransition lastTransition;
+    
+    private final TimerManager timerManager = new TimerManager();
+    private Consumer<StepResult> stepListener;
+
+    public void setStepListener(Consumer<StepResult> listener) {
+        this.stepListener = listener;
+    }
+
+    public void setFastMode(boolean fast) {
+        timerManager.setFastMode(fast);
+    }
 
     public static class TransitionPath {
         public final List<ITransition> transitions;
@@ -42,9 +54,10 @@ public class SimulationEngine {
         public final List<String> transitionActions;
         public final List<String> entryActions;
         public final String doActivity;
+        public final String note;
 
         public StepResult(IVertex source, IVertex target, TransitionPath path,
-                          List<String> exitActions, List<String> transitionActions, List<String> entryActions, String doActivity) {
+                          List<String> exitActions, List<String> transitionActions, List<String> entryActions, String doActivity, String note) {
             this.source = source;
             this.target = target;
             this.path = path;
@@ -52,10 +65,12 @@ public class SimulationEngine {
             this.transitionActions = transitionActions;
             this.entryActions = entryActions;
             this.doActivity = doActivity;
+            this.note = note;
         }
     }
 
     public StepResult start(IStateMachineDiagram diagram) {
+        timerManager.cancel();
         currentVertices.clear();
         previousVertices.clear();
         historyMap.clear();
@@ -98,10 +113,12 @@ public class SimulationEngine {
 
                         TransitionPath path = new TransitionPath(Collections.singletonList(t));
                         
-                        return new StepResult(ps, target, path, exitActions, transitionActions, entryActions, null);
+                        checkTimers();
+                        return new StepResult(ps, target, path, exitActions, transitionActions, entryActions, null, null);
                     } else {
                         currentVertices.add(ps);
-                        return new StepResult(ps, ps, null, exitActions, null, entryActions, null);
+                        checkTimers();
+                        return new StepResult(ps, ps, null, exitActions, null, entryActions, null, null);
                     }
                 }
             }
@@ -158,7 +175,8 @@ public class SimulationEngine {
         paths.add(new TransitionPath(currentPath));
     }
 
-    public StepResult step(TransitionPath path) {
+    public StepResult step(TransitionPath path, String note) {
+        timerManager.cancel();
         if (path == null || path.transitions.isEmpty()) return null;
 
         IVertex source = path.getSource();
@@ -268,8 +286,9 @@ public class SimulationEngine {
         lastTransition = path.getLast(); // Highlight the last transition in the chain? Or the first? Usually the last one entering target.
         currentVertices.addAll(nextVertices);
 
+        checkTimers();
         // For StepResult, we return the primary target of the transition, though multiple states might be active.
-        return new StepResult(source, target, path, exitActions, transitionActions, entryActions, doActivity);
+        return new StepResult(source, target, path, exitActions, transitionActions, entryActions, doActivity, note);
     }
 
     public List<IVertex> getCurrentVertices() {
@@ -282,6 +301,35 @@ public class SimulationEngine {
 
     public ITransition getLastTransition() {
         return lastTransition;
+    }
+
+    private void checkTimers() {
+        List<TransitionPath> paths = getAvailableTransitions();
+        long minDelay = -1;
+        TransitionPath minPath = null;
+
+        for (TransitionPath path : paths) {
+            String event = path.getRoot().getEvent();
+            long delay = TimerManager.parseDuration(event);
+            if (delay >= 0) {
+                if (minPath == null || delay < minDelay) {
+                    minDelay = delay;
+                    minPath = path;
+                }
+            }
+        }
+
+        if (minPath != null) {
+            final TransitionPath p = minPath;
+            boolean isFast = timerManager.isFastMode();
+            timerManager.schedule(minDelay, () -> {
+                String note = isFast ? "(Fast)" : null;
+                StepResult res = step(p, note);
+                if (stepListener != null) {
+                    stepListener.accept(res);
+                }
+            });
+        }
     }
 
     private void completeOrthogonalRegions(List<IVertex> nextVertices, IElement lca, List<String> entryActions) {

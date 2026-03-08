@@ -297,7 +297,7 @@
     *   ログに `[Timer] tm(1000) fired` 等が表示されること。
     *   (高速モード実装後) 高速モードONの場合、待ち時間なしで遷移すること。
 
-### No.20 テスト記録・再生機能の実装
+nch### No.20 テスト記録・再生機能の実装
 
 #### 準備: テスト用モデルの作成
 **（test/scripts/create_test_model_no20.js をスクリプトエディタで実行すると自動作成できます）**
@@ -321,3 +321,56 @@
 *   **確認事項**:
     *   自動的に StateA -> StateB -> StateC と遷移し、StateC で停止すること。
     *   ログに再生による遷移であることが示されること（任意）。
+
+### No.21 時間遷移イベント（タイマー）の実装
+
+#### 準備: テスト用モデルの作成
+**（test/scripts/create_test_model_no21.js をスクリプトエディタで実行すると自動作成できます）**
+
+*   **SelectTest**: テストケース分岐用の状態
+*   **Wait1sec**: tm(1000)を持つ状態
+*   **Wait5sec_Or_Cancel**: tm(5000)とcancelイベントを持つ状態
+*   **Fast_Wait10sec**: tm(10000)を持つ状態（高速モード確認用）
+*   **Composite_Timer**: 内部にタイマー遷移を持つ複合状態
+
+#### テストケース
+
+##### Case 21-1: 基本的なタイマー遷移
+*   **操作**:
+    1.  Start -> SelectTest
+    2.  "test_basic" -> Wait1sec
+*   **確認事項**:
+    *   Wait1secに遷移後、約1000ms経過すると自動的に **AutoMoved** へ遷移すること。
+    *   ログに `[Timer] tm(1000) fired` 等が表示されること。
+
+##### Case 21-2: タイマーのキャンセル
+*   **操作**:
+    1.  (Case 21-1の続き) AutoMoved -> "next" -> Wait5sec_Or_Cancel
+    2.  遷移後、すぐに "cancel" を実行 -> ManualMoved
+*   **確認事項**:
+    *   ManualMovedへ遷移すること。
+    *   その後5000ms経過しても、**TimeoutMoved** への遷移（タイマー発火）が発生しないこと。
+
+##### Case 21-3: 高速モード（Fast Mode）
+*   **前提**: 高速モードをONにする（UI実装後）。
+*   **操作**:
+    1.  Start -> SelectTest
+    2.  "test_fast" -> Fast_Wait10sec
+*   **確認事項**:
+    *   Fast_Wait10secに遷移後、10000ms待つことなく、即座（または短時間）に **Fast_Done** へ遷移すること。
+
+##### Case 21-4: 不正なフォーマットの無視
+*   **操作**:
+    1.  Start -> SelectTest
+    2.  "test_invalid" -> Invalid_Wait
+*   **確認事項**:
+    *   `tm(abc)` や `tm(-100)` などのイベント定義があってもエラーが発生しないこと。
+    *   自動遷移が発生せず、Invalid_Waitにとどまること。
+
+##### Case 21-5: 複合状態内のタイマー
+*   **操作**:
+    1.  Start -> SelectTest
+    2.  "test_composite" -> Composite_Timer (-> Comp_Wait1sec)
+*   **確認事項**:
+    *   内部の初期状態から **Comp_Wait1sec** へ遷移すること。
+    *   約1000ms経過後、自動的に **Comp_Done** へ遷移すること。
