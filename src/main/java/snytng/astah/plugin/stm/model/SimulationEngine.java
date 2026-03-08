@@ -26,6 +26,11 @@ public class SimulationEngine {
     
     private final TimerManager timerManager = new TimerManager();
     private Consumer<StepResult> stepListener;
+    private TimerListener timerListener;
+
+    public interface TimerListener {
+        void onTimerFired(List<TransitionPath> paths);
+    }
 
     public void setStepListener(Consumer<StepResult> listener) {
         this.stepListener = listener;
@@ -33,6 +38,14 @@ public class SimulationEngine {
 
     public void setFastMode(boolean fast) {
         timerManager.setFastMode(fast);
+    }
+
+    public boolean isFastMode() {
+        return timerManager.isFastMode();
+    }
+
+    public void setTimerListener(TimerListener listener) {
+        this.timerListener = listener;
     }
 
     public static class TransitionPath {
@@ -306,27 +319,36 @@ public class SimulationEngine {
     private void checkTimers() {
         List<TransitionPath> paths = getAvailableTransitions();
         long minDelay = -1;
-        TransitionPath minPath = null;
+        List<TransitionPath> minPaths = new ArrayList<>();
 
         for (TransitionPath path : paths) {
             String event = path.getRoot().getEvent();
             long delay = TimerManager.parseDuration(event);
             if (delay >= 0) {
-                if (minPath == null || delay < minDelay) {
+                if (minPaths.isEmpty() || delay < minDelay) {
                     minDelay = delay;
-                    minPath = path;
+                    minPaths.clear();
+                    minPaths.add(path);
+                } else if (delay == minDelay) {
+                    minPaths.add(path);
                 }
             }
         }
 
-        if (minPath != null) {
-            final TransitionPath p = minPath;
+        if (!minPaths.isEmpty()) {
+            final List<TransitionPath> pathsToFire = new ArrayList<>(minPaths);
             boolean isFast = timerManager.isFastMode();
             timerManager.schedule(minDelay, () -> {
-                String note = isFast ? "(Fast)" : null;
-                StepResult res = step(p, note);
-                if (stepListener != null) {
-                    stepListener.accept(res);
+                if (pathsToFire.size() == 1) {
+                    String note = isFast ? "(Fast)" : null;
+                    StepResult res = step(pathsToFire.get(0), note);
+                    if (stepListener != null) {
+                        stepListener.accept(res);
+                    }
+                } else {
+                    if (timerListener != null) {
+                        timerListener.onTimerFired(pathsToFire);
+                    }
                 }
             });
         }

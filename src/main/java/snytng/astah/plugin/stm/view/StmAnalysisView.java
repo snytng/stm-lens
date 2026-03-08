@@ -19,6 +19,7 @@ import com.change_vision.jude.api.inf.view.IEntitySelectionListener;
 import snytng.astah.plugin.stm.model.DiagramHighlighter;
 import snytng.astah.plugin.stm.model.SimulationEngine;
 import snytng.astah.plugin.stm.model.TestManager;
+import snytng.astah.plugin.stm.model.TimerManager;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -42,6 +43,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
+import java.util.Set;
+import java.util.HashSet;
 
 public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
 
@@ -67,6 +70,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     private final SimulationEngine engine = new SimulationEngine();
     private final TestManager testManager = new TestManager();
     private DiagramHighlighter highlighter;
+    private final Set<String> firedTimers = new HashSet<>();
     
     private final IDiagramEditorSelectionListener diagramEditorSelectionListener = e -> {
         try {
@@ -115,10 +119,18 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         
         engine.setStepListener(result -> {
             if (result != null) {
+                firedTimers.clear(); // Reset fired timers on step
                 testManager.recordTransition(result.path);
                 printStepResult(result);
                 refreshUI();
             }
+        });
+
+        engine.setTimerListener(paths -> {
+            SwingUtilities.invokeLater(() -> {
+                paths.forEach(p -> firedTimers.add(p.getRoot().getEvent()));
+                refreshUI();
+            });
         });
     }
 
@@ -232,6 +244,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
                     highlighter.clearAll();
                 }
 
+                firedTimers.clear();
                 SimulationEngine.StepResult result = engine.start((IStateMachineDiagram) currentDiagram);
                 logArea.setText("Simulation started.\n");
                 printStepResult(result);
@@ -251,6 +264,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
             highlighter.clearAll();
         }
 
+        firedTimers.clear();
         engine.start(null);
         stateLabel.setText("Current State: -");
         eventPanel.removeAll();
@@ -469,6 +483,13 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
                     }
 
                     JButton btn = new JButton(label);
+                    
+                    long delay = TimerManager.parseDuration(eventName);
+                    if (delay >= 0 && !engine.isFastMode() && !firedTimers.contains(eventName)) {
+                        btn.setEnabled(false);
+                        btn.setText(label + " (Waiting...)");
+                    }
+
                     Color color = EVENT_COLORS[colorIndex % EVENT_COLORS.length];
                     btn.setBackground(color);
                     btn.setForeground(color.darker().darker().darker());
@@ -491,6 +512,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     }
 
     private void fireTransition(SimulationEngine.TransitionPath path) {
+        firedTimers.clear();
         SimulationEngine.StepResult result = engine.step(path, null);
         testManager.recordTransition(path);
         if (result == null) return;
