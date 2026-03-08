@@ -1,6 +1,7 @@
 package snytng.astah.plugin.stm.model;
 
 import com.change_vision.jude.api.inf.model.IElement;
+import com.change_vision.jude.api.inf.model.INamedElement;
 import com.change_vision.jude.api.inf.model.IPseudostate;
 import com.change_vision.jude.api.inf.model.IState;
 import com.change_vision.jude.api.inf.model.IStateMachine;
@@ -14,7 +15,9 @@ import java.util.List;
 import java.util.Set;
 import java.util.Map;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
+import java.util.stream.Collectors;
 import java.util.function.Consumer;
 
 public class SimulationEngine {
@@ -22,6 +25,7 @@ public class SimulationEngine {
     private List<IVertex> currentVertices = new ArrayList<>();
     private List<IVertex> previousVertices = new ArrayList<>();
     private Map<IState, IVertex> historyMap = new HashMap<>();
+    private Map<IVertex, Long> entryTimeMap = new HashMap<>();
     private ITransition lastTransition;
     
     private final TimerManager timerManager = new TimerManager();
@@ -69,9 +73,10 @@ public class SimulationEngine {
         public final List<String> entryActions;
         public final String doActivity;
         public final String note;
+        public final List<TransitionPath> executedPaths;
 
         public StepResult(IVertex source, IVertex target, TransitionPath path,
-                          List<String> exitActions, List<String> transitionActions, List<String> entryActions, String doActivity, String note) {
+                          List<String> exitActions, List<String> transitionActions, List<String> entryActions, String doActivity, String note, List<TransitionPath> executedPaths) {
             this.source = source;
             this.target = target;
             this.path = path;
@@ -80,6 +85,7 @@ public class SimulationEngine {
             this.entryActions = entryActions;
             this.doActivity = doActivity;
             this.note = note;
+            this.executedPaths = executedPaths;
         }
     }
 
@@ -88,6 +94,7 @@ public class SimulationEngine {
         currentVertices.clear();
         previousVertices.clear();
         historyMap.clear();
+        entryTimeMap.clear();
         lastTransition = null;
 
         if (diagram == null) return null;
@@ -119,7 +126,7 @@ public class SimulationEngine {
                         List<String> transitionActions = new ArrayList<>();
                         if (transitionAction != null) transitionActions.add(transitionAction);
                         
-                        currentVertices.addAll(drillDown(target, entryActions));
+                        currentVertices.addAll(drillDown(target, entryActions, new HashSet<>()));
                         
                         // Update history for highlighting (Initial state as previous)
                         previousVertices.add(ps);
@@ -128,11 +135,11 @@ public class SimulationEngine {
                         TransitionPath path = new TransitionPath(Collections.singletonList(t));
                         
                         checkTimers();
-                        return new StepResult(ps, target, path, exitActions, transitionActions, entryActions, null, null);
+                        return new StepResult(ps, target, path, exitActions, transitionActions, entryActions, null, null, Collections.singletonList(path));
                     } else {
                         currentVertices.add(ps);
                         checkTimers();
-                        return new StepResult(ps, ps, null, exitActions, null, entryActions, null, null);
+                        return new StepResult(ps, ps, null, exitActions, null, entryActions, null, null, null);
                     }
                 }
             }
@@ -145,24 +152,30 @@ public class SimulationEngine {
             return Collections.emptyList();
         }
         List<TransitionPath> paths = new ArrayList<>();
+        Set<IVertex> processedVertices = new HashSet<>();
         
         for (IVertex v : currentVertices) {
-            collectPaths(v, paths);
-            
-            IElement container = v.getContainer();
-            while (container != null && !(container instanceof IStateMachine)) {
-                if (container instanceof IState) {
-                    collectPaths((IVertex) container, paths);
+            IVertex current = v;
+            while (current != null) {
+                if (!processedVertices.contains(current)) {
+                    collectPaths(current, paths);
+                    processedVertices.add(current);
                 }
-                container = container.getContainer();
+                
+                IElement container = current.getContainer();
+                if (container instanceof IStateMachine) break;
+                current = (container instanceof IVertex) ? (IVertex) container : null;
             }
         }
         return paths;
     }
 
     private void collectPaths(IVertex source, List<TransitionPath> paths) {
-        for (ITransition t : source.getOutgoings()) {
-            expandTransition(t, new ArrayList<>(Collections.singletonList(t)), paths);
+        ITransition[] outgoings = source.getOutgoings();
+        if (outgoings != null) {
+            for (ITransition t : outgoings) {
+                expandTransition(t, new ArrayList<>(Collections.singletonList(t)), paths);
+            }
         }
     }
 
@@ -189,120 +202,101 @@ public class SimulationEngine {
         paths.add(new TransitionPath(currentPath));
     }
 
-    public StepResult step(TransitionPath path, String note) {
+    public StepResult step(List<TransitionPath> paths, String note) {
         timerManager.cancel();
-        if (path == null || path.transitions.isEmpty()) return null;
+        if (paths == null || paths.isEmpty()) return null;
 
-        IVertex source = path.getSource();
-        IVertex target = path.getTarget();
+        // For logging, we'll use the first path as representative.
+        TransitionPath representativePath = paths.get(0);
+        IVertex source = representativePath.getSource();
+        IVertex target = representativePath.getTarget();
 
-        // 1. Find LCA (Least Common Ancestor)
-        IElement lca = findLCA(path);
-        
-        // Identify states being exited (from source up to, but not including, LCA)
-        List<IElement> exitedStates = new ArrayList<>();
-        
-        // 1. Collect primary exit path (Source -> LCA)
-        IElement currentElement = source;
-        while (currentElement != null && !currentElement.equals(lca)) {
-            if (!exitedStates.contains(currentElement)) {
+        // --- Run-to-Completion Step ---
+
+        // 1. Collect all unique states to be exited from all paths
+        Set<IElement> exitedStates = new LinkedHashSet<>();
+        for (TransitionPath path : paths) {
+            IElement lca = findLCA(path);
+            IElement currentElement = path.getSource();
+            while (currentElement != null && !currentElement.equals(lca)) {
                 exitedStates.add(currentElement);
+                currentElement = currentElement.getContainer();
             }
-            currentElement = currentElement.getContainer();
         }
-        
-        // 2. Collect all active descendants of any exited state (covers orthogonal regions)
-        for (IVertex active : currentVertices) {
-            boolean isExiting = false;
-            for (IElement exited : exitedStates) {
-                if (active.equals(exited) || isDescendant(active, exited)) {
-                    isExiting = true;
+
+        // 2. Collect all active vertices that are descendants of the exited states
+        Set<IVertex> verticesToExit = new LinkedHashSet<>();
+        for (IVertex activeVertex : currentVertices) {
+            for (IElement exitedState : exitedStates) {
+                if (activeVertex.equals(exitedState) || isDescendant(activeVertex, exitedState)) {
+                    verticesToExit.add(activeVertex);
                     break;
                 }
             }
-            
-            if (isExiting) {
-                IElement v = active;
-                while (v != null && !v.equals(lca)) {
-                    if (!exitedStates.contains(v)) {
-                        exitedStates.add(v);
-                    }
-                    v = v.getContainer();
-                }
-            }
         }
 
-        // Update History before exiting
-        updateHistory(exitedStates);
+        // 3. Perform exit procedures
+        List<String> allExitActions = new ArrayList<>();
+        for (IVertex vertexToExit : verticesToExit) {
+            // Find the LCA for the context of this specific exit.
+            // This is complex. A simplification: assume exit up to the highest-level exited state's container.
+            IElement exitBoundary = findExitBoundary(vertexToExit, exitedStates);
+            collectExitActions(vertexToExit, exitBoundary, allExitActions);
+        }
+
+        // Update history and clear entry times for all exited vertices
+        updateHistory(new ArrayList<>(exitedStates));
+        verticesToExit.forEach(entryTimeMap::remove);
         
-        // 2. Collect Exit Actions
-        List<String> exitActions = new ArrayList<>();
-
-        // 2a. Handle implicit exits (descendants of exited states)
-        List<IVertex> toRemove = new ArrayList<>();
-        for (IVertex active : currentVertices) {
-            IElement boundary = null;
-            for (IElement exited : exitedStates) {
-                if (active.equals(exited) || isDescendant(active, exited)) {
-                    boundary = exited;
-                    break; // Found the most specific exited ancestor (or self)
-                }
-            }
-            if (boundary != null) {
-                collectExitActions(active, boundary, exitActions);
-                toRemove.add(active);
-            }
-        }
-        currentVertices.removeAll(toRemove);
-
-        // 2b. Collect Exit Actions for the main path (Source -> LCA)
-        collectExitActions(source, lca, exitActions);
-
-        // 3. Transition Action
-        List<String> transitionActions = new ArrayList<>();
-        for (ITransition t : path.transitions) {
+        // 4. Collect all transition actions
+        List<String> allTransitionActions = new ArrayList<>();
+        paths.forEach(p -> p.transitions.forEach(t -> {
             String action = t.getAction();
             if (action != null && !action.isEmpty()) {
-                transitionActions.add(action);
+                allTransitionActions.add(action);
             }
+        }));
+
+        // 5. Collect all entry actions and determine next active states
+        List<String> allEntryActions = new ArrayList<>();
+        List<IVertex> nextVertices = new ArrayList<>();
+        for (TransitionPath path : paths) {
+            IElement lca = findLCA(path);
+            collectEntryActions(path.getTarget(), lca, allEntryActions);
+            nextVertices.addAll(drillDown(path.getTarget(), allEntryActions, new HashSet<>()));
         }
 
-        // 4. Collect Entry Actions (LCA -> Target)
-        List<String> entryActions = new ArrayList<>();
-        collectEntryActions(target, lca, entryActions);
+        // Remove duplicates from next vertices
+        nextVertices = nextVertices.stream().distinct().collect(Collectors.toList());
 
-        // 5. Drill down if target is composite (Initial -> ...)
-        List<IVertex> nextVertices = drillDown(target, entryActions);
-
-        // 5b. If we entered an Orthogonal State partially, enter other regions
-        completeOrthogonalRegions(nextVertices, lca, entryActions);
-
-        // 6. Do Activity
-        String doActivity = null;
-        // For simplicity, just take the first one's Do activity if available, or join them?
-        // Let's just record the primary target's Do if it's a state.
-        if (target instanceof IState) {
-            doActivity = ((IState) target).getDoActivity();
-        }
-
-        // Update state
+        // Update simulation state
         previousVertices.clear();
-        for (IElement e : exitedStates) {
-            if (e instanceof IVertex) {
-                previousVertices.add((IVertex) e);
-            }
-        }
-        for (IVertex removed : toRemove) {
-            if (!previousVertices.contains(removed)) {
-                previousVertices.add(removed);
-            }
-        }
-        lastTransition = path.getLast(); // Highlight the last transition in the chain? Or the first? Usually the last one entering target.
+        previousVertices.addAll(verticesToExit);
+        currentVertices.removeAll(verticesToExit);
         currentVertices.addAll(nextVertices);
+        lastTransition = representativePath.getLast();
 
         checkTimers();
-        // For StepResult, we return the primary target of the transition, though multiple states might be active.
-        return new StepResult(source, target, path, exitActions, transitionActions, entryActions, doActivity, note);
+
+        // Return a representative result for logging
+        return new StepResult(source, target, representativePath, allExitActions, allTransitionActions, allEntryActions, null, note, paths);
+    }
+
+    // Wrapper for single path transition for backward compatibility (e.g., with timers)
+    public StepResult step(TransitionPath path, String note) {
+        return step(Collections.singletonList(path), note);
+    }
+
+    private IElement findExitBoundary(IVertex vertexToExit, Set<IElement> exitedStates) {
+        IElement container = vertexToExit.getContainer();
+        while(container != null) {
+            if(exitedStates.contains(container)){
+                container = container.getContainer();
+            } else {
+                return container;
+            }
+        }
+        return null;
     }
 
     public List<IVertex> getCurrentVertices() {
@@ -324,13 +318,19 @@ public class SimulationEngine {
 
         for (TransitionPath path : paths) {
             String event = path.getRoot().getEvent();
-            long delay = TimerManager.parseDuration(event);
-            if (delay >= 0) {
-                if (minPaths.isEmpty() || delay < minDelay) {
-                    minDelay = delay;
+            long definedDelay = TimerManager.parseDuration(event);
+            if (definedDelay >= 0) {
+                long remainingDelay = definedDelay;
+                Long entryTime = entryTimeMap.get(path.getSource());
+                if (entryTime != null && !isFastMode()) {
+                    remainingDelay = definedDelay - (System.currentTimeMillis() - entryTime);
+                }
+
+                if (minPaths.isEmpty() || remainingDelay < minDelay) {
+                    minDelay = remainingDelay;
                     minPaths.clear();
                     minPaths.add(path);
-                } else if (delay == minDelay) {
+                } else if (remainingDelay == minDelay) {
                     minPaths.add(path);
                 }
             }
@@ -339,7 +339,7 @@ public class SimulationEngine {
         if (!minPaths.isEmpty()) {
             final List<TransitionPath> pathsToFire = new ArrayList<>(minPaths);
             boolean isFast = timerManager.isFastMode();
-            timerManager.schedule(minDelay, () -> {
+            timerManager.schedule(Math.max(0, minDelay), () -> {
                 if (pathsToFire.size() == 1) {
                     String note = isFast ? "(Fast)" : null;
                     StepResult res = step(pathsToFire.get(0), note);
@@ -384,7 +384,7 @@ public class SimulationEngine {
                             if (entry != null && !entry.isEmpty()) {
                                 entryActions.add(entry);
                             }
-                            nextVertices.addAll(drillDown(region, entryActions));
+                            nextVertices.addAll(drillDown(region, entryActions, new HashSet<>()));
                         }
                     }
                 }
@@ -484,7 +484,12 @@ public class SimulationEngine {
         return null;
     }
 
-    private List<IVertex> drillDown(IVertex current, List<String> entryActions) {
+    private List<IVertex> drillDown(IVertex current, List<String> entryActions, Set<IVertex> visited) {
+        if (visited.contains(current)) {
+            return new ArrayList<>();
+        }
+        visited.add(current);
+
         // Handle History Pseudostates
         if (current instanceof IPseudostate) {
             IPseudostate ps = (IPseudostate) current;
@@ -506,13 +511,13 @@ public class SimulationEngine {
                                         entryActions.add(entry);
                                     }
                                     if (ps.isDeepHistoryPseudostate()) {
-                                        restoredVertices.addAll(restoreDeepHistory(region, entryActions));
+                                        restoredVertices.addAll(restoreDeepHistory(region, entryActions, visited));
                                     } else { // Shallow History
                                         IVertex history = historyMap.get(region);
                                         if (history != null) {
-                                            restoredVertices.addAll(drillDown(history, entryActions));
+                                            restoredVertices.addAll(drillDown(history, entryActions, visited));
                                         } else {
-                                            restoredVertices.addAll(drillDown(region, entryActions));
+                                            restoredVertices.addAll(drillDown(region, entryActions, visited));
                                         }
                                     }
                                 }
@@ -522,7 +527,7 @@ public class SimulationEngine {
                             return restoredVertices;
                         }
                         // Fallback if no regions were found, enter the state normally.
-                        return drillDown(parent, entryActions);
+                        return drillDown(parent, entryActions, visited);
                     } else {
                         // Original logic for non-orthogonal states
                         IVertex history = historyMap.get(parent);
@@ -535,9 +540,9 @@ public class SimulationEngine {
                                 }
                             }
                             if (ps.isDeepHistoryPseudostate()) {
-                                return restoreDeepHistory(history, entryActions);
+                                return restoreDeepHistory(history, entryActions, visited);
                             } else {
-                                return drillDown(history, entryActions);
+                                return drillDown(history, entryActions, visited);
                             }
                         } else {
                             // No history: Follow default transition (outgoing from History Pseudostate)
@@ -555,11 +560,11 @@ public class SimulationEngine {
                                         entryActions.add(entry);
                                     }
                                 }
-                                return drillDown(next, entryActions);
+                                return drillDown(next, entryActions, visited);
                             } else {
                                 // Fallback: If no history and no default transition, behave as if entering the composite state normally.
                                 // UML Spec: Target is semantically equivalent to a Transition to the composite State itself.
-                                return drillDown((IVertex) container, entryActions);
+                                return drillDown((IVertex) container, entryActions, visited);
                             }
                         }
                     }
@@ -570,6 +575,7 @@ public class SimulationEngine {
         List<IVertex> results = new ArrayList<>();
         if (!(current instanceof IState)) {
             results.add(current);
+            entryTimeMap.put(current, System.currentTimeMillis());
             return results;
         }
 
@@ -577,6 +583,7 @@ public class SimulationEngine {
         IVertex[] sv = state.getSubvertexes();
         if (sv == null || sv.length == 0) {
             results.add(current);
+            entryTimeMap.put(current, System.currentTimeMillis());
             return results;
         }
         
@@ -586,19 +593,36 @@ public class SimulationEngine {
             // If no Initial Pseudostate found, assume Orthogonal State (Parallel)
             // Treat sub-states as Regions and drill down into them.
             boolean foundRegion = false;
+            
+            Set<IState> regions = new LinkedHashSet<>();
+            
+            // 1. Get real regions
+            try {
+                for (IState r : state.getStateRegions()) {
+                    regions.add(r);
+                }
+            } catch (Exception e) {}
+            
+            // 2. Get subvertex states (for script models or API variations)
             for (IVertex v : subvertexes) {
                 if (v instanceof IState) {
+                    regions.add((IState) v);
+                }
+            }
+
+            for (IState region : regions) {
+                    if (region.equals(state)) continue; // Prevent self-recursion
                     foundRegion = true;
                     // Note: Regions (IState) usually don't have entry actions, but if they do, we collect them.
-                    String entry = ((IState) v).getEntry();
+                    String entry = region.getEntry();
                     if (entry != null && !entry.isEmpty()) {
                         entryActions.add(entry);
                     }
-                    results.addAll(drillDown(v, entryActions));
-                }
+                    results.addAll(drillDown(region, entryActions, visited));
             }
             if (!foundRegion) {
                 results.add(current);
+                entryTimeMap.put(current, System.currentTimeMillis());
             }
         } else {
             // Standard Composite State with Initial Pseudostate
@@ -620,7 +644,7 @@ public class SimulationEngine {
                                 entryActions.add(entry);
                             }
                         }
-                        results.addAll(drillDown(next, entryActions));
+                        results.addAll(drillDown(next, entryActions, visited));
                     }
                 }
             }
@@ -642,7 +666,11 @@ public class SimulationEngine {
         return subvertexes.length > 0;
     }
 
-    private List<IVertex> restoreDeepHistory(IVertex current, List<String> entryActions) {
+    private List<IVertex> restoreDeepHistory(IVertex current, List<String> entryActions, Set<IVertex> visited) {
+        if (visited.contains(current)) {
+            return new ArrayList<>();
+        }
+        visited.add(current);
         List<IVertex> results = new ArrayList<>();
         
         if (!(current instanceof IState)) {
@@ -662,14 +690,15 @@ public class SimulationEngine {
                     entryActions.add(entry);
                 }
                 // Recursively restore
-                return restoreDeepHistory(historyChild, entryActions);
+                return restoreDeepHistory(historyChild, entryActions, visited);
             } else {
                 results.add(historyChild);
+                entryTimeMap.put(historyChild, System.currentTimeMillis());
                 return results;
             }
         } else {
             // No history for this level, revert to normal drillDown (Initial)
-            return drillDown(current, entryActions);
+            return drillDown(current, entryActions, visited);
         }
     }
 
@@ -710,7 +739,7 @@ public class SimulationEngine {
         // 3. Model Structure
         sb.append("\n[Model Structure]\n");
         if (diagram != null && diagram.getStateMachine() != null) {
-            dumpStateMachine(sb, diagram.getStateMachine(), "");
+            dumpStateMachine(sb, diagram.getStateMachine(), "", new HashSet<>());
         } else {
             sb.append(" (No Diagram/StateMachine loaded)\n");
         }
@@ -718,13 +747,28 @@ public class SimulationEngine {
         return sb.toString();
     }
 
-    private void dumpStateMachine(StringBuilder sb, IStateMachine sm, String indent) {
+    private void dumpStateMachine(StringBuilder sb, IStateMachine sm, String indent, Set<Object> visited) {
+        if (visited.contains(sm)) {
+            sb.append(indent).append("[Recursive StateMachine: ").append(sm.getName()).append("]\n");
+            return;
+        }
+        visited.add(sm);
+
         for (IVertex v : sm.getVertexes()) {
-            dumpVertex(sb, v, indent);
+            // Check if the vertex is a direct child of a StateMachine (top-level)
+            // We check if container is NOT a Vertex (it should be the StateMachine)
+            if (!(v.getContainer() instanceof IVertex)) {
+                dumpVertex(sb, v, indent, visited, false);
+            }
         }
     }
 
-    private void dumpVertex(StringBuilder sb, IVertex v, String indent) {
+    private void dumpVertex(StringBuilder sb, IVertex v, String indent, Set<Object> visited, boolean isRegion) {
+        if (visited.contains(v)) {
+            return;
+        }
+        visited.add(v);
+
         sb.append(indent).append("- ").append(v.getName()).append(" (").append(v.getClass().getSimpleName()).append(")\n");
         
         // Outgoings
@@ -734,12 +778,47 @@ public class SimulationEngine {
 
         // Children (if Composite)
         if (v instanceof IState) {
-            IVertex[] children = ((IState) v).getSubvertexes();
+            IState state = (IState) v;
+            if (state.isSubmachineState()) {
+                IStateMachine sub = state.getSubmachine();
+                if (sub != null) {
+                    sb.append(indent).append("    [Submachine: ").append(sub.getName()).append("]\n");
+                    dumpStateMachine(sb, sub, indent + "    ", visited);
+                }
+            }
+
+            // 1. Try to get regions (for Orthogonal State)
+            try {
+                for (IState region : state.getStateRegions()) {
+                    dumpVertex(sb, region, indent + "    ", visited, true);
+                }
+            } catch (Exception e) {
+                // Ignore if method not found or fails
+            }
+
+            // 2. Dump Subvertexes (Standard Composite State or contents of Region)
+            IVertex[] children = state.getSubvertexes();
             if (children != null && children.length > 0) {
                 for (IVertex child : children) {
-                    dumpVertex(sb, child, indent + "    ");
+                    // If current state is a Region, we assume all subvertexes are its children (skipping container check)
+                    // If current state is NOT a Region, we enforce container check to avoid flattening
+                    if (isRegion || isChildOf(child, state)) {
+                        dumpVertex(sb, child, indent + "    ", visited, false);
+                    }
                 }
             }
         }
+    }
+
+    private boolean isChildOf(IElement child, IElement parent) {
+        IElement container = child.getContainer();
+        if (container == null) return false;
+        if (container.equals(parent)) return true;
+        
+        String cId = container.getId();
+        String pId = parent.getId();
+        if (cId != null && pId != null && cId.equals(pId)) return true;
+        
+        return false;
     }
 }

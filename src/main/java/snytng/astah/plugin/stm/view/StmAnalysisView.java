@@ -43,6 +43,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Set;
 import java.util.HashSet;
 
@@ -444,48 +445,26 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
             if (paths.isEmpty()) {
                 eventPanel.add(new JLabel("No events available"));
             } else {
-                Map<ITransition, Color> transitionColors = new HashMap<>(); // Map root transition to color
-                int colorIndex = 0;
+                // Group paths by a generated label to handle Run-to-Completion
+                Map<String, List<SimulationEngine.TransitionPath>> eventGroups = new LinkedHashMap<>();
                 for (SimulationEngine.TransitionPath path : paths) {
-                    ITransition root = path.getRoot();
-                    boolean hasOtherTransitionsWithSameEvent = false;
-                    String eventName = root.getEvent();
+                    String label = getPathLabel(path, paths);
+                    eventGroups.computeIfAbsent(label, k -> new ArrayList<>()).add(path);
+                }
 
-                    if (eventName != null) {
-                        for (SimulationEngine.TransitionPath other : paths) {
-                            if (path != other && eventName.equals(other.getRoot().getEvent())) {
-                                hasOtherTransitionsWithSameEvent = true;
-                                break;
-                            }
-                        }
-                    }
+                Map<ITransition, Color> transitionColors = new HashMap<>();
+                int colorIndex = 0;
 
-                    String label = eventName != null ? eventName : "(anonymous)";
+                for (Map.Entry<String, List<SimulationEngine.TransitionPath>> entry : eventGroups.entrySet()) {
+                    String label = entry.getKey();
+                    List<SimulationEngine.TransitionPath> groupedPaths = entry.getValue();
                     
-                    // Collect guards from the path
-                    StringBuilder guards = new StringBuilder();
-                    for (ITransition t : path.transitions) {
-                        String g = t.getGuard();
-                        if (g != null && !g.isEmpty()) {
-                            if (guards.length() > 0) guards.append(" & ");
-                            guards.append(g);
-                        }
-                    }
-                    
-                    if (guards.length() > 0) {
-                        label += " [" + guards.toString() + "]";
-                    } else if (hasOtherTransitionsWithSameEvent) {
-                        label += " [else]"; // Fallback if no explicit guard but multiple paths
-                    }
-
-                    if (label == null || label.isEmpty()) {
-                       label = "Transition to " + path.getTarget().getName();
-                    }
-
                     JButton btn = new JButton(label);
                     
-                    long delay = TimerManager.parseDuration(eventName);
-                    if (delay >= 0 && !engine.isFastMode() && !firedTimers.contains(eventName)) {
+                    // Check if this group is a timer event
+                    String eventNameForTimer = groupedPaths.get(0).getRoot().getEvent();
+                    long delay = TimerManager.parseDuration(eventNameForTimer);
+                    if (delay >= 0 && !engine.isFastMode() && !firedTimers.contains(eventNameForTimer)) {
                         btn.setEnabled(false);
                         btn.setText(label + " (Waiting...)");
                     }
@@ -493,12 +472,17 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
                     Color color = EVENT_COLORS[colorIndex % EVENT_COLORS.length];
                     btn.setBackground(color);
                     btn.setForeground(color.darker().darker().darker());
-                    transitionColors.put(root, color); // Highlight the root transition on diagram
+                    
+                    // Highlight all root transitions in this group with the same color
+                    for(SimulationEngine.TransitionPath p : groupedPaths) {
+                        transitionColors.put(p.getRoot(), color);
+                    }
                     colorIndex++;
 
-                    btn.addActionListener(e -> fireTransition(path));
+                    btn.addActionListener(e -> fireTransitions(groupedPaths));
                     eventPanel.add(btn);
                 }
+
                 if (highlighter != null) {
                     highlighter.highlightAvailableTransitions(transitionColors);
                 }
@@ -511,10 +495,41 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         eventPanel.repaint();
     }
 
-    private void fireTransition(SimulationEngine.TransitionPath path) {
+    private String getPathLabel(SimulationEngine.TransitionPath path, List<SimulationEngine.TransitionPath> allPaths) {
+        ITransition root = path.getRoot();
+        String eventName = root.getEvent();
+        String label = (eventName != null && !eventName.isEmpty()) ? eventName : "(anonymous)";
+
+        // Collect guards from the path
+        StringBuilder guards = new StringBuilder();
+        for (ITransition t : path.transitions) {
+            String g = t.getGuard();
+            if (g != null && !g.isEmpty()) {
+                if (guards.length() > 0) guards.append(" & ");
+                guards.append(g);
+            }
+        }
+
+        if (guards.length() > 0) {
+            label += " [" + guards.toString() + "]";
+        } else {
+            // Add [else] if another path exists with the same event name but has a guard
+            boolean hasGuardedSibling = allPaths.stream().anyMatch(p -> 
+                p != path && 
+                eventName.equals(p.getRoot().getEvent()) && 
+                p.transitions.stream().anyMatch(t -> t.getGuard() != null && !t.getGuard().isEmpty())
+            );
+            if(hasGuardedSibling) {
+                 label += " [else]";
+            }
+        }
+        return label;
+    }
+
+    private void fireTransitions(List<SimulationEngine.TransitionPath> paths) {
         firedTimers.clear();
-        SimulationEngine.StepResult result = engine.step(path, null);
-        testManager.recordTransition(path);
+        SimulationEngine.StepResult result = engine.step(paths, null);
+        paths.forEach(testManager::recordTransition); // Record all paths in the step
         if (result == null) return;
 
         printStepResult(result);
@@ -559,8 +574,15 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
             logArea.append("  [Do] " + result.doActivity + "\n");
         }
 
-        logArea.append(String.format("Transition: %s -> %s\n",
-                result.source.getName(), result.target.getName()));
+        if (result.executedPaths != null && !result.executedPaths.isEmpty()) {
+            for (SimulationEngine.TransitionPath path : result.executedPaths) {
+                logArea.append(String.format("Transition: %s -> %s\n",
+                        path.getSource().getName(), path.getTarget().getName()));
+            }
+        } else {
+            logArea.append(String.format("Transition: %s -> %s\n",
+                    result.source.getName(), result.target.getName()));
+        }
     }
 
     @Override
