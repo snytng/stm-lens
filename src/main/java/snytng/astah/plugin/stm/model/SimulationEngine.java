@@ -159,7 +159,8 @@ public class SimulationEngine {
                         List<String> transitionActions = new ArrayList<>();
                         if (transitionAction != null) transitionActions.add(transitionAction);
                         
-                        currentVertices.addAll(drillDown(target, entryActions, new HashSet<>()));
+                        Set<IVertex> visitedForDrillDown = new HashSet<>();
+                        currentVertices.addAll(drillDown(target, entryActions, visitedForDrillDown));
                         
                         // Update history for highlighting (Initial state as previous)
                         previousVertices.add(ps);
@@ -168,11 +169,13 @@ public class SimulationEngine {
                         TransitionPath path = new TransitionPath(Collections.singletonList(t));
                         
                         checkTimers();
+                        validateCurrentStates();
                         saveSnapshot();
                         return new StepResult(ps, target, path, exitActions, transitionActions, entryActions, null, null, Collections.singletonList(path));
                     } else {
                         currentVertices.add(ps);
                         checkTimers();
+                        validateCurrentStates();
                         saveSnapshot();
                         return new StepResult(ps, ps, null, exitActions, null, entryActions, null, null, null);
                     }
@@ -248,40 +251,60 @@ public class SimulationEngine {
 
         // --- Run-to-Completion Step ---
 
-        // 1. Collect all unique states to be exited from all paths
-        Set<IElement> exitedStates = new LinkedHashSet<>();
-        for (TransitionPath path : paths) {
-            IElement lca = findLCA(path);
-            IElement currentElement = path.getSource();
-            while (currentElement != null && !currentElement.equals(lca)) {
-                exitedStates.add(currentElement);
-                currentElement = currentElement.getContainer();
-            }
-        }
+        // Find a common LCA for all paths. For simplicity, we use the LCA of the first path.
+        // A more robust implementation might find a common ancestor for all path sources and targets.
+        IElement lca = findLCA(paths.get(0));
 
-        // 2. Collect all active vertices that are descendants of the exited states
+        // 1. Collect all active vertices that need to be exited.
+        // These are the current active vertices that are descendants of the source of any of the paths.
         Set<IVertex> verticesToExit = new LinkedHashSet<>();
-        for (IVertex activeVertex : currentVertices) {
-            for (IElement exitedState : exitedStates) {
-                if (activeVertex.equals(exitedState) || isDescendant(activeVertex, exitedState)) {
-                    verticesToExit.add(activeVertex);
+        
+        for (TransitionPath path : paths) {
+            IVertex pathSource = path.getSource();
+            
+            Set<IElement> exitContexts = new LinkedHashSet<>();
+            exitContexts.add(pathSource);
+            for (IElement a : getAncestors(pathSource)) {
+                if (a.equals(lca) || (a.getId() != null && lca != null && a.getId().equals(lca.getId()))) {
                     break;
+                }
+                exitContexts.add(a);
+            }
+            
+            for (IVertex activeVertex : currentVertices) {
+                for(IElement context : exitContexts){
+                     if (isSameElement(activeVertex, context) || isDescendant(activeVertex, context)) {
+                    verticesToExit.add(activeVertex);
+                        break;
+                     }
                 }
             }
         }
 
-        // 3. Perform exit procedures
+        // 2. Perform exit procedures for all vertices to be exited, walking up to the LCA.
         List<String> allExitActions = new ArrayList<>();
+        Set<IVertex> alreadyExited = new HashSet<>(); // To avoid collecting duplicate exit actions
         for (IVertex vertexToExit : verticesToExit) {
-            // Find the LCA for the context of this specific exit.
-            // This is complex. A simplification: assume exit up to the highest-level exited state's container.
-            IElement exitBoundary = findExitBoundary(vertexToExit, exitedStates);
-            collectExitActions(vertexToExit, exitBoundary, allExitActions);
+            IVertex v = vertexToExit;
+            // Walk up the hierarchy from the active leaf state to the LCA
+            while (v != null && v != lca) {
+                if (!alreadyExited.contains(v)) {
+                    if (v instanceof IState) {
+                        String exit = ((IState) v).getExit();
+                        if (exit != null && !exit.isEmpty()) {
+                            allExitActions.add(exit);
+                        }
+                    }
+                    alreadyExited.add(v);
+                }
+                IElement container = v.getContainer();
+                v = (container instanceof IVertex) ? (IVertex) container : null;
+            }
         }
 
         // Update history and clear entry times for all exited vertices
-        updateHistory(new ArrayList<>(exitedStates));
-        verticesToExit.forEach(entryTimeMap::remove);
+        updateHistory(new ArrayList<>(alreadyExited));
+        alreadyExited.forEach(entryTimeMap::remove);
         
         // 4. Collect all transition actions
         List<String> allTransitionActions = new ArrayList<>();
@@ -295,19 +318,51 @@ public class SimulationEngine {
         // 5. Collect all entry actions and determine next active states
         List<String> allEntryActions = new ArrayList<>();
         List<IVertex> nextVertices = new ArrayList<>();
+        Set<IVertex> visitedForDrillDown = new HashSet<>(); // Shared visited set for this step
         for (TransitionPath path : paths) {
-            IElement lca = findLCA(path);
-            collectEntryActions(path.getTarget(), lca, allEntryActions);
-            nextVertices.addAll(drillDown(path.getTarget(), allEntryActions, new HashSet<>()));
+            IElement pathLca = findLCA(path);
+            collectEntryActions(path.getTarget(), pathLca, allEntryActions);
+            nextVertices.addAll(drillDown(path.getTarget(), allEntryActions, visitedForDrillDown));
         }
 
-        // Remove duplicates from next vertices
-        nextVertices = nextVertices.stream().distinct().collect(Collectors.toList());
+        completeOrthogonalRegions(nextVertices, lca, allEntryActions, visitedForDrillDown);
 
-        // Update simulation state
+        // Remove duplicates from next vertices using ID
+        List<IVertex> uniqueNextVertices = new ArrayList<>();
+        for (IVertex v : nextVertices) {
+            boolean exists = false;
+            for (IVertex u : uniqueNextVertices) {
+                if (isSameElement(u, v)) {
+                    exists = true;
+                    break;
+                }
+            }
+            if (!exists) {
+                uniqueNextVertices.add(v);
+            }
+        }
+        nextVertices = uniqueNextVertices;
+
+        // Update simulation state by removing all exited states and adding the new ones.
         previousVertices.clear();
-        previousVertices.addAll(verticesToExit);
-        currentVertices.removeAll(verticesToExit);
+        previousVertices.addAll(alreadyExited); // Store all exited states for highlighting
+
+        // Rebuild the list of current vertices to ensure consistency
+        List<IVertex> newCurrentVertices = new ArrayList<>();
+        for (IVertex v : currentVertices) {
+            boolean exited = false;
+            for (IVertex ev : alreadyExited) {
+                if (isSameElement(ev, v)) {
+                    exited = true;
+                    break;
+                }
+            }
+            if (!exited) {
+                newCurrentVertices.add(v);
+            }
+        }
+        currentVertices.clear();
+        currentVertices.addAll(newCurrentVertices);
         currentVertices.addAll(nextVertices);
         lastTransition = representativePath.getLast();
 
@@ -501,7 +556,7 @@ public class SimulationEngine {
         }
     }
 
-    private void completeOrthogonalRegions(List<IVertex> nextVertices, IElement lca, List<String> entryActions) {
+    private void completeOrthogonalRegions(List<IVertex> nextVertices, IElement lca, List<String> entryActions, Set<IVertex> visited) {
         // Collect all states being entered (ancestors of nextVertices up to lca)
         Set<IState> enteredStates = new LinkedHashSet<>();
         for (IVertex v : nextVertices) {
@@ -520,18 +575,41 @@ public class SimulationEngine {
         List<IState> statesToCheck = new ArrayList<>(enteredStates);
         for (IState state : statesToCheck) {
             if (isOrthogonalState(state)) {
-                IVertex[] subvertexes = state.getSubvertexes();
-                for (IVertex sub : subvertexes) {
-                    if (sub instanceof IState) { // Region
-                        IState region = (IState) sub;
-                        if (!enteredStates.contains(region)) {
-                            // This region is not entered explicitly. Enter it implicitly.
-                            String entry = region.getEntry();
-                            if (entry != null && !entry.isEmpty()) {
-                                entryActions.add(entry);
-                            }
-                            nextVertices.addAll(drillDown(region, entryActions, new HashSet<>()));
+                Set<IState> regions = new LinkedHashSet<>();
+                try {
+                    for (IState r : state.getStateRegions()) {
+                        if (r != null && !r.equals(state)) {
+                            regions.add(r);
                         }
+                    }
+                } catch (Exception e) {}
+
+                if (regions.isEmpty()) {
+                    IVertex[] subvertexes = state.getSubvertexes();
+                    if (subvertexes != null) {
+                        for (IVertex sub : subvertexes) {
+                            if (sub instanceof IState) {
+                                regions.add((IState) sub);
+                            }
+                        }
+                    }
+                }
+
+                for (IState region : regions) {
+                    boolean isEntered = false;
+                    for (IState es : enteredStates) {
+                        if (es.equals(region) || (es.getId() != null && region.getId() != null && es.getId().equals(region.getId()))) {
+                            isEntered = true;
+                            break;
+                        }
+                    }
+                    if (!isEntered) {
+                        // This region is not entered explicitly. Enter it implicitly.
+                        String entry = region.getEntry();
+                        if (entry != null && !entry.isEmpty()) {
+                            entryActions.add(entry);
+                        }
+                            nextVertices.addAll(drillDown(region, entryActions, visited));
                     }
                 }
             }
@@ -548,11 +626,24 @@ public class SimulationEngine {
 
         // Intersect with ancestors of all other vertices involved in the path
         for (ITransition t : path.transitions) {
-            commonAncestors.retainAll(getAncestors(t.getSource()));
-            commonAncestors.retainAll(getAncestors(t.getTarget()));
+            commonAncestors = intersectAncestors(commonAncestors, getAncestors(t.getSource()));
+            commonAncestors = intersectAncestors(commonAncestors, getAncestors(t.getTarget()));
         }
 
         return commonAncestors.isEmpty() ? null : commonAncestors.get(0);
+    }
+
+    private List<IElement> intersectAncestors(List<IElement> list1, List<IElement> list2) {
+        List<IElement> result = new ArrayList<>();
+        for (IElement e1 : list1) {
+            for (IElement e2 : list2) {
+                if (isSameElement(e1, e2)) {
+                    result.add(e1);
+                    break;
+                }
+            }
+        }
+        return result;
     }
 
     private List<IElement> getAncestors(IVertex v) {
@@ -620,9 +711,9 @@ public class SimulationEngine {
 
     private IVertex getDirectChild(IState parent, IVertex descendant) {
         IElement current = descendant;
-        while (current != null) {
+        while (current != null && !isSameElement(current, parent)) {
             IElement container = current.getContainer();
-            if (container != null && container.equals(parent)) {
+            if (isSameElement(container, parent)) {
                 return (current instanceof IVertex) ? (IVertex) current : null;
             }
             current = container;
@@ -745,19 +836,23 @@ public class SimulationEngine {
             // 1. Get real regions
             try {
                 for (IState r : state.getStateRegions()) {
-                    regions.add(r);
+                    if (r != null && !isSameElement(r, state)) {
+                        regions.add(r);
+                    }
                 }
             } catch (Exception e) {}
             
             // 2. Get subvertex states (for script models or API variations)
-            for (IVertex v : subvertexes) {
-                if (v instanceof IState) {
-                    regions.add((IState) v);
+            if (regions.isEmpty()) {
+                for (IVertex v : subvertexes) {
+                    if (v instanceof IState) {
+                        regions.add((IState) v);
+                    }
                 }
             }
 
             for (IState region : regions) {
-                    if (region.equals(state)) continue; // Prevent self-recursion
+                    if (isSameElement(region, state)) continue; // Prevent self-recursion
                     foundRegion = true;
                     // Note: Regions (IState) usually don't have entry actions, but if they do, we collect them.
                     String entry = region.getEntry();
@@ -794,22 +889,67 @@ public class SimulationEngine {
                     }
                 }
             }
+
+            // Auto-drilldown Fallback for regions/states without an Initial Pseudostate
+            // but containing exactly one sub-state (often happens with astah's implicit regions)
+            if (results.isEmpty()) {
+                List<IState> childStates = new ArrayList<>();
+                for (IVertex v : subvertexes) {
+                    if (v instanceof IState) {
+                        childStates.add((IState) v);
+                    }
+                }
+                if (childStates.size() == 1) {
+                    IState onlyChild = childStates.get(0);
+                    String entry = onlyChild.getEntry();
+                    if (entry != null && !entry.isEmpty()) {
+                        entryActions.add(entry);
+                    }
+                    results.addAll(drillDown(onlyChild, entryActions, visited));
+                }
+            }
+        }
+        
+        // --- Fallback ---
+        // If it was considered a composite state but yielded no results (e.g., missing InitialPseudostate),
+        // treat it as a simple state to avoid losing the active state.
+        if (results.isEmpty()) {
+            results.add(current);
+            entryTimeMap.put(current, System.currentTimeMillis());
         }
         
         return results;
     }
 
     private boolean isOrthogonalState(IState state) {
+        // 1. Check using astah* API for real Orthogonal States
+        try {
+            for (IState r : state.getStateRegions()) {
+                if (r != null && !isSameElement(r, state)) {
+                    // ループに1回でも入り、自身と異なる要素があれば、領域（Region）が存在する並行状態だと判定できる
+                    return true;
+                }
+            }
+        } catch (Exception e) {
+            // Ignore if method not found or fails
+        }
+
+        // 2. Fallback logic for script-generated mock models
         IVertex[] subvertexes = state.getSubvertexes();
         if (subvertexes == null) return false;
         
+        boolean hasInitial = false;
+        int stateCount = 0;
         for (IVertex v : subvertexes) {
             if (v instanceof IPseudostate && ((IPseudostate) v).isInitialPseudostate()) {
-                return false; // Has Initial -> Not Orthogonal (Simplified logic)
+                hasInitial = true;
+            }
+            if (v instanceof IState) {
+                stateCount++;
             }
         }
-        // If it has subvertexes but no Initial, assume Orthogonal if it has Region-like states
-        return subvertexes.length > 0;
+        if (hasInitial) return false;
+        return stateCount >= 2;
     }
 
     private List<IVertex> restoreDeepHistory(IVertex current, List<String> entryActions, Set<IVertex> visited) {
@@ -821,6 +961,7 @@ public class SimulationEngine {
         
         if (!(current instanceof IState)) {
             results.add(current);
+            entryTimeMap.put(current, System.currentTimeMillis());
             return results;
         }
         
@@ -844,19 +985,50 @@ public class SimulationEngine {
             }
         } else {
             // No history for this level, revert to normal drillDown (Initial)
+            visited.remove(current);
             return drillDown(current, entryActions, visited);
         }
     }
 
     private boolean isDescendant(IVertex v, IElement ancestor) {
+        if (v == null || ancestor == null) return false;
         IElement current = v.getContainer();
         while (current != null) {
-            if (current.equals(ancestor)) {
+            if (isSameElement(current, ancestor)) {
                 return true;
             }
             current = current.getContainer();
         }
         return false;
+    }
+
+    private boolean isContainedInRegion(IVertex v, IState region) {
+        if (v == null || region == null) return false;
+        if (isSameElement(v, region)) return true;
+        if (isDescendant(v, region)) return true;
+        // Bottom-up failed (API skipped container), try top-down
+        return isVertexInSubvertexes(v, region);
+    }
+
+    private boolean isVertexInSubvertexes(IVertex target, IState container) {
+        IVertex[] subvertexes = container.getSubvertexes();
+        if (subvertexes == null) return false;
+        for (IVertex sub : subvertexes) {
+            if (isSameElement(sub, target)) return true;
+            if (sub instanceof IState) {
+                if (isVertexInSubvertexes(target, (IState) sub)) return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isSameElement(IElement e1, IElement e2) {
+        if (e1 == null && e2 == null) return true;
+        if (e1 == null || e2 == null) return false;
+        if (e1.equals(e2)) return true;
+        String id1 = e1.getId();
+        String id2 = e2.getId();
+        return id1 != null && id2 != null && id1.equals(id2);
     }
 
     // --- Debug Utilities ---
@@ -936,7 +1108,9 @@ public class SimulationEngine {
             // 1. Try to get regions (for Orthogonal State)
             try {
                 for (IState region : state.getStateRegions()) {
-                    dumpVertex(sb, region, indent + "    ", visited, true);
+                    if (region != null && !isSameElement(region, state)) {
+                        dumpVertex(sb, region, indent + "    ", visited, true);
+                    }
                 }
             } catch (Exception e) {
                 // Ignore if method not found or fails
@@ -957,14 +1131,6 @@ public class SimulationEngine {
     }
 
     private boolean isChildOf(IElement child, IElement parent) {
-        IElement container = child.getContainer();
-        if (container == null) return false;
-        if (container.equals(parent)) return true;
-        
-        String cId = container.getId();
-        String pId = parent.getId();
-        if (cId != null && pId != null && cId.equals(pId)) return true;
-        
-        return false;
+        return isSameElement(child.getContainer(), parent);
     }
 }

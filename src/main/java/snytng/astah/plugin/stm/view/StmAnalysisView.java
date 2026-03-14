@@ -24,6 +24,7 @@ import snytng.astah.plugin.stm.model.IllegalSimulationStateException;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
+import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JLabel;
@@ -32,6 +33,8 @@ import javax.swing.JComboBox;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
+import javax.swing.JToggleButton;
+import javax.swing.JSplitPane;
 import javax.swing.SwingUtilities;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -57,6 +60,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     private JCheckBox showActionsCheckbox;
     private JCheckBox fastModeCheckbox;
     private JPanel eventPanel;
+    private JToggleButton testToggleBtn;
     
     // Test UI
     private JButton recordButton;
@@ -146,32 +150,58 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     private void initComponents() {
         setLayout(new BorderLayout());
 
-        // 1. Top Panel (Control & Status)
-        JPanel topPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        // 1. Top Panel (Control, Navigation, Settings & Test Tools)
+        JPanel northPanel = new JPanel();
+        northPanel.setLayout(new BoxLayout(northPanel, BoxLayout.Y_AXIS));
+
+        // 1行目: メインコントロール
+        JPanel controlLine = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
+        
         startButton = new JButton("Start");
         resetButton = new JButton("Reset");
+        
+        // Navigation UI (Top Panelに移動)
+        startNavButton = new JButton("|<<");
+        prevNavButton = new JButton("<");
+        nextNavButton = new JButton(">");
+        endNavButton = new JButton(">>|");
+        stepLabel = new JLabel("Step: 0 / 0");
+
+        startNavButton.addActionListener(e -> { engine.goToStart(); refreshUI(); logArea.append("Moved to Start.\n"); });
+        prevNavButton.addActionListener(e -> { engine.stepBack(); refreshUI(); logArea.append("Stepped back.\n"); });
+        nextNavButton.addActionListener(e -> { engine.stepForward(); refreshUI(); logArea.append("Stepped forward.\n"); });
+        endNavButton.addActionListener(e -> { engine.goToEnd(); refreshUI(); logArea.append("Moved to End.\n"); });
+
         copyDebugButton = new JButton("Copy Debug");
         stateLabel = new JLabel("Current State: -");
         showActionsCheckbox = new JCheckBox("Show Actions", true);
         fastModeCheckbox = new JCheckBox("Fast Mode", false);
+        testToggleBtn = new JToggleButton("▼ Test Tools");
 
         startButton.addActionListener(e -> startSimulation());
         resetButton.addActionListener(e -> resetSimulation());
         copyDebugButton.addActionListener(e -> copyDebugInfo());
         fastModeCheckbox.addActionListener(e -> engine.setFastMode(fastModeCheckbox.isSelected()));
 
-        topPanel.add(startButton);
-        topPanel.add(resetButton);
-        topPanel.add(copyDebugButton);
-        topPanel.add(Box.createHorizontalStrut(20));
-        topPanel.add(stateLabel);
-        topPanel.add(Box.createHorizontalStrut(10));
-        topPanel.add(showActionsCheckbox);
-        topPanel.add(fastModeCheckbox);
+        controlLine.add(startButton);
+        controlLine.add(resetButton);
+        controlLine.add(Box.createHorizontalStrut(5));
+        controlLine.add(startNavButton);
+        controlLine.add(prevNavButton);
+        controlLine.add(stepLabel);
+        controlLine.add(nextNavButton);
+        controlLine.add(endNavButton);
+        controlLine.add(Box.createHorizontalStrut(5));
+        controlLine.add(stateLabel);
+        controlLine.add(Box.createHorizontalStrut(5));
+        controlLine.add(showActionsCheckbox);
+        controlLine.add(fastModeCheckbox);
+        controlLine.add(copyDebugButton);
+        controlLine.add(Box.createHorizontalStrut(5));
+        controlLine.add(testToggleBtn);
 
-        // Test Panel
-        JPanel testPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        testPanel.setBorder(BorderFactory.createTitledBorder("Test"));
+        // 2行目: Test Panel
+        JPanel testPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
         
         recordButton = new JButton("Record");
         stopButton = new JButton("Stop");
@@ -198,37 +228,23 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         testPanel.add(infoButton);
         testPanel.add(renameButton);
         testPanel.add(deleteButton);
+        testPanel.setVisible(false); // 初期状態は非表示
 
-        // Combine Top and Test
-        JPanel northPanel = new JPanel(new BorderLayout());
-        northPanel.add(topPanel, BorderLayout.NORTH);
-        northPanel.add(testPanel, BorderLayout.SOUTH);
+        testToggleBtn.addActionListener(e -> {
+            boolean isSelected = testToggleBtn.isSelected();
+            testPanel.setVisible(isSelected);
+            testToggleBtn.setText(isSelected ? "▲ Test Tools" : "▼ Test Tools");
+            northPanel.revalidate();
+            northPanel.repaint();
+        });
+
+        northPanel.add(controlLine);
+        northPanel.add(testPanel);
 
         add(northPanel, BorderLayout.NORTH);
 
         // 2. Center Panel (Events)
         JPanel eventContainer = new JPanel(new BorderLayout());
-        eventContainer.setBorder(BorderFactory.createTitledBorder("Events"));
-        
-        JPanel navPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        startNavButton = new JButton("|<<");
-        prevNavButton = new JButton("<");
-        nextNavButton = new JButton(">");
-        endNavButton = new JButton(">>|");
-        stepLabel = new JLabel("Step: 0 / 0");
-
-        startNavButton.addActionListener(e -> { engine.goToStart(); refreshUI(); logArea.append("Moved to Start.\n"); });
-        prevNavButton.addActionListener(e -> { engine.stepBack(); refreshUI(); logArea.append("Stepped back.\n"); });
-        nextNavButton.addActionListener(e -> { engine.stepForward(); refreshUI(); logArea.append("Stepped forward.\n"); });
-        endNavButton.addActionListener(e -> { engine.goToEnd(); refreshUI(); logArea.append("Moved to End.\n"); });
-
-        navPanel.add(startNavButton);
-        navPanel.add(prevNavButton);
-        navPanel.add(stepLabel);
-        navPanel.add(nextNavButton);
-        navPanel.add(endNavButton);
-        
-        eventContainer.add(navPanel, BorderLayout.NORTH);
 
         eventPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         eventPanel.setBackground(Color.WHITE);
@@ -236,17 +252,20 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         JScrollPane eventScrollPane = new JScrollPane(eventPanel);
         eventScrollPane.setBorder(null);
         eventContainer.add(eventScrollPane, BorderLayout.CENTER);
-        
-        add(eventContainer, BorderLayout.CENTER);
 
-        // 3. Bottom Panel (Log)
+        // 3. Right Panel (Log)
         logArea = new JTextArea();
         logArea.setEditable(false);
         logArea.setRows(6);
         JScrollPane logScrollPane = new JScrollPane(logArea);
-        logScrollPane.setBorder(BorderFactory.createTitledBorder("Log"));
 
-        add(logScrollPane, BorderLayout.SOUTH);
+        // SplitPane for Events and Log
+        JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, eventContainer, logScrollPane);
+        splitPane.setResizeWeight(0.4); // 左側(Events)の初期幅を40%に設定
+        splitPane.setOneTouchExpandable(true);
+        splitPane.setContinuousLayout(true);
+
+        add(splitPane, BorderLayout.CENTER);
 
         // Add MouseListener to refresh UI when user hovers over the view
         // This is a workaround because astah* API does not provide an event for active diagram change.
@@ -278,11 +297,15 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
                 }
 
                 firedTimers.clear();
-                SimulationEngine.StepResult result = engine.start((IStateMachineDiagram) currentDiagram);
-                logArea.setText("Simulation started.\n");
-                printStepResult(result);
-                refreshUI();
-                updateTestCaseList((IStateMachineDiagram) currentDiagram);
+                try {
+                    SimulationEngine.StepResult result = engine.start((IStateMachineDiagram) currentDiagram);
+                    logArea.setText("Simulation started.\n");
+                    printStepResult(result);
+                    refreshUI();
+                    updateTestCaseList((IStateMachineDiagram) currentDiagram);
+                } catch (IllegalSimulationStateException e) {
+                    handleSimulationException(e);
+                }
             } else {
                 logArea.append("Please open a State Machine Diagram.\n");
             }
