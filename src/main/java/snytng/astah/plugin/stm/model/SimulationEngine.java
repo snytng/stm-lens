@@ -28,6 +28,8 @@ public class SimulationEngine {
     private Map<IState, IVertex> historyMap = new HashMap<>();
     private Map<IVertex, Long> entryTimeMap = new HashMap<>();
     private ITransition lastTransition;
+    private List<SimulationSnapshot> historySnapshots = new ArrayList<>();
+    private int currentSnapshotIndex = -1;
     
     private final TimerManager timerManager = new TimerManager();
     private Consumer<StepResult> stepListener;
@@ -48,6 +50,34 @@ public class SimulationEngine {
 
     public boolean isFastMode() {
         return timerManager.isFastMode();
+    }
+
+    public static class SimulationSnapshot {
+        public final List<IVertex> currentVertices;
+        public final List<IVertex> previousVertices;
+        public final Map<IState, IVertex> historyMap;
+        public final Map<IVertex, Long> entryTimeMap;
+        public final ITransition lastTransition;
+
+        public SimulationSnapshot(SimulationEngine engine) {
+            this.currentVertices = new ArrayList<>(engine.currentVertices);
+            this.previousVertices = new ArrayList<>(engine.previousVertices);
+            this.historyMap = new HashMap<>(engine.historyMap);
+            this.entryTimeMap = new HashMap<>(engine.entryTimeMap);
+            this.lastTransition = engine.lastTransition;
+        }
+
+        public void restore(SimulationEngine engine) {
+            engine.currentVertices.clear();
+            engine.currentVertices.addAll(this.currentVertices);
+            engine.previousVertices.clear();
+            engine.previousVertices.addAll(this.previousVertices);
+            engine.historyMap.clear();
+            engine.historyMap.putAll(this.historyMap);
+            engine.entryTimeMap.clear();
+            engine.entryTimeMap.putAll(this.entryTimeMap);
+            engine.lastTransition = this.lastTransition;
+        }
     }
 
     public void setTimerListener(TimerListener listener) {
@@ -97,6 +127,8 @@ public class SimulationEngine {
         historyMap.clear();
         entryTimeMap.clear();
         lastTransition = null;
+        historySnapshots.clear();
+        currentSnapshotIndex = -1;
 
         if (diagram == null) return null;
 
@@ -136,10 +168,12 @@ public class SimulationEngine {
                         TransitionPath path = new TransitionPath(Collections.singletonList(t));
                         
                         checkTimers();
+                        saveSnapshot();
                         return new StepResult(ps, target, path, exitActions, transitionActions, entryActions, null, null, Collections.singletonList(path));
                     } else {
                         currentVertices.add(ps);
                         checkTimers();
+                        saveSnapshot();
                         return new StepResult(ps, ps, null, exitActions, null, entryActions, null, null, null);
                     }
                 }
@@ -281,6 +315,8 @@ public class SimulationEngine {
 
         validateCurrentStates();
 
+        saveSnapshot();
+
         // Return a representative result for logging
         return new StepResult(source, target, representativePath, allExitActions, allTransitionActions, allEntryActions, null, note, paths);
     }
@@ -312,6 +348,64 @@ public class SimulationEngine {
 
     public ITransition getLastTransition() {
         return lastTransition;
+    }
+
+    private void saveSnapshot() {
+        // If we are not at the end of the history, truncate the future
+        if (currentSnapshotIndex < historySnapshots.size() - 1) {
+            historySnapshots.subList(currentSnapshotIndex + 1, historySnapshots.size()).clear();
+        }
+        historySnapshots.add(new SimulationSnapshot(this));
+        currentSnapshotIndex = historySnapshots.size() - 1;
+    }
+
+    public boolean canStepBack() {
+        return currentSnapshotIndex > 0;
+    }
+
+    public boolean canStepForward() {
+        return currentSnapshotIndex < historySnapshots.size() - 1;
+    }
+
+    public void stepBack() {
+        if (canStepBack()) {
+            restoreSnapshot(currentSnapshotIndex - 1);
+        }
+    }
+
+    public void stepForward() {
+        if (canStepForward()) {
+            restoreSnapshot(currentSnapshotIndex + 1);
+        }
+    }
+
+    public void goToStart() {
+        if (!historySnapshots.isEmpty()) {
+            restoreSnapshot(0);
+        }
+    }
+
+    public void goToEnd() {
+        if (!historySnapshots.isEmpty()) {
+            restoreSnapshot(historySnapshots.size() - 1);
+        }
+    }
+
+    private void restoreSnapshot(int index) {
+        if (index >= 0 && index < historySnapshots.size()) {
+            timerManager.cancel();
+            currentSnapshotIndex = index;
+            historySnapshots.get(index).restore(this);
+            checkTimers();
+        }
+    }
+
+    public int getCurrentSnapshotIndex() {
+        return currentSnapshotIndex;
+    }
+
+    public int getHistorySize() {
+        return historySnapshots.size();
     }
 
     /**

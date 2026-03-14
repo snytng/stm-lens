@@ -67,6 +67,13 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     private JButton deleteButton;
     private JComboBox<String> testCaseCombo;
     
+    // Navigation UI
+    private JButton startNavButton;
+    private JButton prevNavButton;
+    private JButton nextNavButton;
+    private JButton endNavButton;
+    private JLabel stepLabel;
+    
     private JTextArea logArea;
 
     private final SimulationEngine engine = new SimulationEngine();
@@ -200,13 +207,37 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         add(northPanel, BorderLayout.NORTH);
 
         // 2. Center Panel (Events)
+        JPanel eventContainer = new JPanel(new BorderLayout());
+        eventContainer.setBorder(BorderFactory.createTitledBorder("Events"));
+        
+        JPanel navPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        startNavButton = new JButton("|<<");
+        prevNavButton = new JButton("<");
+        nextNavButton = new JButton(">");
+        endNavButton = new JButton(">>|");
+        stepLabel = new JLabel("Step: 0 / 0");
+
+        startNavButton.addActionListener(e -> { engine.goToStart(); refreshUI(); logArea.append("Moved to Start.\n"); });
+        prevNavButton.addActionListener(e -> { engine.stepBack(); refreshUI(); logArea.append("Stepped back.\n"); });
+        nextNavButton.addActionListener(e -> { engine.stepForward(); refreshUI(); logArea.append("Stepped forward.\n"); });
+        endNavButton.addActionListener(e -> { engine.goToEnd(); refreshUI(); logArea.append("Moved to End.\n"); });
+
+        navPanel.add(startNavButton);
+        navPanel.add(prevNavButton);
+        navPanel.add(stepLabel);
+        navPanel.add(nextNavButton);
+        navPanel.add(endNavButton);
+        
+        eventContainer.add(navPanel, BorderLayout.NORTH);
+
         eventPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        eventPanel.setBorder(BorderFactory.createTitledBorder("Events"));
         eventPanel.setBackground(Color.WHITE);
 
         JScrollPane eventScrollPane = new JScrollPane(eventPanel);
         eventScrollPane.setBorder(null);
-        add(eventScrollPane, BorderLayout.CENTER);
+        eventContainer.add(eventScrollPane, BorderLayout.CENTER);
+        
+        add(eventContainer, BorderLayout.CENTER);
 
         // 3. Bottom Panel (Log)
         logArea = new JTextArea();
@@ -432,6 +463,18 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         if(highlighter != null) {
             highlighter.clearAll();
         }
+
+        int currentIdx = engine.getCurrentSnapshotIndex();
+        int historySize = engine.getHistorySize();
+        if (historySize > 0) {
+            stepLabel.setText("Step: " + (currentIdx + 1) + " / " + historySize);
+        } else {
+            stepLabel.setText("Step: 0 / 0");
+        }
+        startNavButton.setEnabled(engine.canStepBack());
+        prevNavButton.setEnabled(engine.canStepBack());
+        nextNavButton.setEnabled(engine.canStepForward());
+        endNavButton.setEnabled(engine.canStepForward());
 
         List<IVertex> currents = engine.getCurrentVertices();
         if (currents != null && !currents.isEmpty()) {

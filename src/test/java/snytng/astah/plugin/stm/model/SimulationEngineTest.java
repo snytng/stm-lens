@@ -136,4 +136,85 @@ public class SimulationEngineTest {
             });
         }
     }
+
+    @Nested
+    @DisplayName("N8: タイムトラベルデバッグ機能")
+    class TimeTravelTest {
+
+        @Mock IStateMachineDiagram diagram2;
+        @Mock IStateMachine sm2;
+        @Mock IPseudostate initial2;
+        @Mock IState stateA2;
+        @Mock IState stateB2;
+        @Mock IState stateC2;
+        @Mock ITransition t1;
+        @Mock ITransition t2;
+
+        @BeforeEach
+        void setupModel() {
+            lenient().when(diagram2.getStateMachine()).thenReturn(sm2);
+            lenient().when(sm2.getVertexes()).thenReturn(new IVertex[]{initial2, stateA2, stateB2, stateC2});
+            lenient().when(initial2.isInitialPseudostate()).thenReturn(true);
+            lenient().when(initial2.getOutgoings()).thenReturn(new ITransition[]{t1});
+            lenient().when(t1.getTarget()).thenReturn(stateA2);
+            lenient().when(t1.getSource()).thenReturn(initial2);
+
+            lenient().when(t2.getSource()).thenReturn(stateA2);
+            lenient().when(t2.getTarget()).thenReturn(stateB2);
+        }
+
+        @Test
+        @DisplayName("step実行時にスナップショットが保存され、指定インデックスの状態に復元できること")
+        void testSaveAndRestoreSnapshot() {
+            SimulationEngine engine = new SimulationEngine();
+            engine.start(diagram2);
+
+            assertEquals(1, engine.getHistorySize());
+            assertEquals(0, engine.getCurrentSnapshotIndex());
+            assertTrue(engine.getCurrentVertices().contains(stateA2));
+
+            // step to StateB
+            SimulationEngine.TransitionPath pathB = new SimulationEngine.TransitionPath(java.util.Collections.singletonList(t2));
+            engine.step(pathB, null);
+
+            assertEquals(2, engine.getHistorySize());
+            assertEquals(1, engine.getCurrentSnapshotIndex());
+            assertTrue(engine.getCurrentVertices().contains(stateB2));
+
+            // Step back to StateA
+            assertTrue(engine.canStepBack());
+            engine.stepBack();
+            assertEquals(0, engine.getCurrentSnapshotIndex());
+            assertTrue(engine.getCurrentVertices().contains(stateA2));
+
+            // Step forward to StateB
+            assertTrue(engine.canStepForward());
+            engine.stepForward();
+            assertEquals(1, engine.getCurrentSnapshotIndex());
+            assertTrue(engine.getCurrentVertices().contains(stateB2));
+        }
+
+        @Test
+        @DisplayName("過去に戻った状態でstepを実行すると、未来の履歴が破棄されて新しい履歴が分岐すること")
+        void testHistoryBranching() {
+            SimulationEngine engine = new SimulationEngine();
+            engine.start(diagram2); // index 0: stateA2
+
+            SimulationEngine.TransitionPath pathB = new SimulationEngine.TransitionPath(java.util.Collections.singletonList(t2));
+            engine.step(pathB, null); // index 1: stateB2
+
+            engine.stepBack(); // back to index 0
+
+            // Step to StateC instead (branching)
+            ITransition t3 = mock(ITransition.class);
+            when(t3.getSource()).thenReturn(stateA2);
+            when(t3.getTarget()).thenReturn(stateC2);
+            SimulationEngine.TransitionPath pathC = new SimulationEngine.TransitionPath(java.util.Collections.singletonList(t3));
+            engine.step(pathC, null); // index 1 is now stateC2
+
+            assertEquals(2, engine.getHistorySize());
+            assertEquals(1, engine.getCurrentSnapshotIndex());
+            assertTrue(engine.getCurrentVertices().contains(stateC2));
+        }
+    }
 }
