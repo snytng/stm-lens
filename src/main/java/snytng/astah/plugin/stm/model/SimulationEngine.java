@@ -1,6 +1,7 @@
 package snytng.astah.plugin.stm.model;
 
 import com.change_vision.jude.api.inf.model.IElement;
+import com.change_vision.jude.api.inf.model.IFinalState;
 import com.change_vision.jude.api.inf.model.INamedElement;
 import com.change_vision.jude.api.inf.model.IPseudostate;
 import com.change_vision.jude.api.inf.model.IState;
@@ -278,6 +279,8 @@ public class SimulationEngine {
 
         checkTimers();
 
+        validateCurrentStates();
+
         // Return a representative result for logging
         return new StepResult(source, target, representativePath, allExitActions, allTransitionActions, allEntryActions, null, note, paths);
     }
@@ -309,6 +312,55 @@ public class SimulationEngine {
 
     public ITransition getLastTransition() {
         return lastTransition;
+    }
+
+    /**
+     * Validates the consistency of the current active states.
+     * This method is intended to be called after each simulation step to ensure the engine is in a legal state.
+     *
+     * @throws IllegalSimulationStateException if an inconsistency is found, such as multiple states in a non-parallel region.
+     */
+    private void validateCurrentStates() throws IllegalSimulationStateException {
+        // 1. Check for lost states (unless a final state is active, which is a valid termination)
+        if (currentVertices.isEmpty()) {
+            throw new IllegalSimulationStateException("Illegal State: Current active state is lost.");
+        }
+        if (currentVertices.stream().anyMatch(v -> v instanceof IFinalState)) {
+            // If a final state is reached, the simulation has validly terminated for that path.
+            return;
+        }
+
+        // 2. Group active states by their container to check for illegal parallel states
+        Map<IElement, List<IVertex>> statesByContainer = new HashMap<>();
+        for (IVertex v : currentVertices) {
+            statesByContainer.computeIfAbsent(v.getContainer(), k -> new ArrayList<>()).add(v);
+        }
+
+        // 3. Check each container for illegal multiple active states
+        for (Map.Entry<IElement, List<IVertex>> entry : statesByContainer.entrySet()) {
+            IElement container = entry.getKey();
+            List<IVertex> verticesInContainer = entry.getValue();
+
+            if (verticesInContainer.size() > 1) {
+                // Multiple states in the same container are only allowed if the container is a parallel (orthogonal) state.
+                boolean isContainerParallel = (container instanceof IState) && isOrthogonalState((IState) container);
+                if (!isContainerParallel) {
+                    String conflictingStates = verticesInContainer.stream()
+                            .map(v -> v.getName() == null || v.getName().isEmpty() ? "[unnamed]" : v.getName())
+                            .collect(Collectors.joining(", "));
+                    String containerName = "Unknown";
+                    if (container instanceof INamedElement) {
+                        INamedElement namedContainer = (INamedElement) container;
+                        containerName = namedContainer.getName() == null || namedContainer.getName().isEmpty() ? "[unnamed]" : namedContainer.getName();
+                    } else if (container == null) {
+                        containerName = "[Top Level]";
+                    }
+
+                    throw new IllegalSimulationStateException(
+                        "Illegal State: Multiple active states (" + conflictingStates + ") found in a non-parallel region '" + containerName + "'.");
+                }
+            }
+        }
     }
 
     private void checkTimers() {

@@ -20,6 +20,7 @@ import snytng.astah.plugin.stm.model.DiagramHighlighter;
 import snytng.astah.plugin.stm.model.SimulationEngine;
 import snytng.astah.plugin.stm.model.TestManager;
 import snytng.astah.plugin.stm.model.TimerManager;
+import snytng.astah.plugin.stm.model.IllegalSimulationStateException;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -316,9 +317,13 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
             IDiagram currentDiagram = projectAccessor.getViewManager().getDiagramViewManager().getCurrentDiagram();
             if (currentDiagram instanceof IStateMachineDiagram) {
                 logArea.append("Playing test case '" + selectedTest + "'...\n");
-                testManager.playTestCase(selectedTest, ((IStateMachineDiagram) currentDiagram).getStateMachine(), engine, this::refreshUI);
-                logArea.append("Test case playback finished.\n");
-                refreshUI();
+                try {
+                    testManager.playTestCase(selectedTest, ((IStateMachineDiagram) currentDiagram).getStateMachine(), engine, this::refreshUI);
+                    logArea.append("Test case playback finished.\n");
+                    refreshUI();
+                } catch (IllegalSimulationStateException ex) {
+                    handleSimulationException(ex);
+                }
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -528,12 +533,30 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
 
     private void fireTransitions(List<SimulationEngine.TransitionPath> paths) {
         firedTimers.clear();
-        SimulationEngine.StepResult result = engine.step(paths, null);
-        paths.forEach(testManager::recordTransition); // Record all paths in the step
-        if (result == null) return;
+        try {
+            SimulationEngine.StepResult result = engine.step(paths, null);
+            paths.forEach(testManager::recordTransition); // Record all paths in the step
+            if (result == null) return;
 
-        printStepResult(result);
-        refreshUI();
+            printStepResult(result);
+            refreshUI();
+        } catch (IllegalSimulationStateException e) {
+            handleSimulationException(e);
+        }
+    }
+
+    private void handleSimulationException(IllegalSimulationStateException e) {
+        logArea.append("\n[Error] シミュレーションを停止しました: " + e.getMessage() + "\n");
+        
+        eventPanel.removeAll();
+        eventPanel.revalidate();
+        eventPanel.repaint();
+        stateLabel.setText("Current State: Error");
+
+        JOptionPane.showMessageDialog(this,
+                "【異常検出】シミュレーションを停止しました。\n\n" + e.getMessage(),
+                "Simulation Error",
+                JOptionPane.ERROR_MESSAGE);
     }
 
     private void printStepResult(SimulationEngine.StepResult result) {
