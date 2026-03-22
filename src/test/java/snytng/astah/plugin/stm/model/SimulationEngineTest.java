@@ -20,6 +20,7 @@ import com.change_vision.jude.api.inf.model.IStateMachine;
 import com.change_vision.jude.api.inf.model.IStateMachineDiagram;
 import com.change_vision.jude.api.inf.model.ITransition;
 import com.change_vision.jude.api.inf.model.IVertex;
+import java.util.List;
 
 @ExtendWith(MockitoExtension.class)
 public class SimulationEngineTest {
@@ -215,6 +216,94 @@ public class SimulationEngineTest {
             assertEquals(2, engine.getHistorySize());
             assertEquals(1, engine.getCurrentSnapshotIndex());
             assertTrue(engine.getCurrentVertices().contains(stateC2));
+        }
+    }
+
+    @Nested
+    @DisplayName("N29: 内部遷移のテスト")
+    class InternalTransitionTest {
+
+        @Mock IStateMachineDiagram diag;
+        @Mock IStateMachine sm;
+        @Mock IPseudostate initial;
+        @Mock IState stateA;
+        @Mock ITransition toA;
+        @Mock ITransition internalT;
+        @Mock ITransition selfT;
+
+        @BeforeEach
+        void setup() {
+            lenient().when(diag.getStateMachine()).thenReturn(sm);
+            lenient().when(sm.getVertexes()).thenReturn(new IVertex[]{initial, stateA});
+            lenient().when(initial.isInitialPseudostate()).thenReturn(true);
+            lenient().when(initial.getOutgoings()).thenReturn(new ITransition[]{toA});
+            lenient().when(toA.getTarget()).thenReturn(stateA);
+            lenient().when(toA.getSource()).thenReturn(initial);
+
+            // State A mocks
+            lenient().when(stateA.getEntry()).thenReturn("entryA");
+            lenient().when(stateA.getExit()).thenReturn("exitA");
+        }
+
+        @Test
+        @DisplayName("内部遷移を実行した場合はEntry/Exitが呼ばれずActionのみ実行されること")
+        void testInternalTransition() {
+            // Setup internal transition mock
+            lenient().when(stateA.getInternalTransitions()).thenReturn(new ITransition[]{internalT});
+            lenient().when(internalT.getSource()).thenReturn(stateA);
+            lenient().when(internalT.getTarget()).thenReturn(stateA);
+            lenient().when(internalT.getAction()).thenReturn("internal_act");
+            lenient().when(internalT.getEvent()).thenReturn("internal_event");
+
+            SimulationEngine engine = new SimulationEngine();
+            engine.start(diag);
+
+            List<SimulationEngine.TransitionPath> paths = engine.getAvailableTransitions();
+            SimulationEngine.TransitionPath internalPath = paths.stream()
+                .filter(p -> "internal_event".equals(p.getRoot().getEvent()))
+                .findFirst().orElse(null);
+            
+            assertNotNull(internalPath, "Internal transition should be available");
+
+            SimulationEngine.StepResult result = engine.step(internalPath, null);
+
+            assertNotNull(result);
+            assertTrue(result.exitActions.isEmpty(), "Exit actions should be empty");
+            assertTrue(result.entryActions.isEmpty(), "Entry actions should be empty");
+            assertEquals(1, result.transitionActions.size());
+            assertEquals("internal_act", result.transitionActions.get(0));
+        }
+
+        @Test
+        @DisplayName("自己遷移を実行した場合はEntry/Exitが呼ばれること")
+        void testSelfTransition() {
+            // Setup self transition mock
+            lenient().when(stateA.getOutgoings()).thenReturn(new ITransition[]{selfT});
+            lenient().when(selfT.getSource()).thenReturn(stateA);
+            lenient().when(selfT.getTarget()).thenReturn(stateA);
+            lenient().when(selfT.getAction()).thenReturn("self_act");
+            lenient().when(selfT.getEvent()).thenReturn("self_event");
+            lenient().when(stateA.getInternalTransitions()).thenReturn(new ITransition[]{});
+
+            SimulationEngine engine = new SimulationEngine();
+            engine.start(diag);
+
+            List<SimulationEngine.TransitionPath> paths = engine.getAvailableTransitions();
+            SimulationEngine.TransitionPath selfPath = paths.stream()
+                .filter(p -> "self_event".equals(p.getRoot().getEvent()))
+                .findFirst().orElse(null);
+            
+            assertNotNull(selfPath, "Self transition should be available");
+
+            SimulationEngine.StepResult result = engine.step(selfPath, null);
+
+            assertNotNull(result);
+            assertEquals(1, result.exitActions.size());
+            assertEquals("exitA", result.exitActions.get(0));
+            assertEquals(1, result.entryActions.size());
+            assertEquals("entryA", result.entryActions.get(0));
+            assertEquals(1, result.transitionActions.size());
+            assertEquals("self_act", result.transitionActions.get(0));
         }
     }
 }

@@ -215,6 +215,20 @@ public class SimulationEngine {
                 expandTransition(t, new ArrayList<>(Collections.singletonList(t)), paths);
             }
         }
+        
+        // --- 内部遷移の追加 ---
+        if (source instanceof IState) {
+            try {
+                ITransition[] internals = ((IState) source).getInternalTransitions();
+                if (internals != null) {
+                    for (ITransition t : internals) {
+                        expandTransition(t, new ArrayList<>(Collections.singletonList(t)), paths);
+                    }
+                }
+            } catch (Exception e) {
+                // ignore
+            }
+        }
     }
 
     private void expandTransition(ITransition current, List<ITransition> currentPath, List<TransitionPath> paths) {
@@ -251,15 +265,24 @@ public class SimulationEngine {
 
         // --- Run-to-Completion Step ---
 
-        // Find a common LCA for all paths. For simplicity, we use the LCA of the first path.
-        // A more robust implementation might find a common ancestor for all path sources and targets.
-        IElement lca = findLCA(paths.get(0));
+        // Find a common LCA for all non-internal paths.
+        IElement lca = null;
+        for (TransitionPath path : paths) {
+            if (!isInternalTransition(path.getRoot())) {
+                lca = findLCA(path);
+                break;
+            }
+        }
 
         // 1. Collect all active vertices that need to be exited.
         // These are the current active vertices that are descendants of the source of any of the paths.
         Set<IVertex> verticesToExit = new LinkedHashSet<>();
         
         for (TransitionPath path : paths) {
+            if (isInternalTransition(path.getRoot())) {
+                continue; // 内部遷移の場合は退出する状態はない
+            }
+            
             IVertex pathSource = path.getSource();
             
             Set<IElement> exitContexts = new LinkedHashSet<>();
@@ -320,6 +343,10 @@ public class SimulationEngine {
         List<IVertex> nextVertices = new ArrayList<>();
         Set<IVertex> visitedForDrillDown = new HashSet<>(); // Shared visited set for this step
         for (TransitionPath path : paths) {
+            if (isInternalTransition(path.getRoot())) {
+                continue; // 内部遷移の場合は新しい状態への進入はない
+            }
+            
             IElement pathLca = findLCA(path);
             collectEntryActions(path.getTarget(), pathLca, allEntryActions);
             nextVertices.addAll(drillDown(path.getTarget(), allEntryActions, visitedForDrillDown));
@@ -1017,6 +1044,26 @@ public class SimulationEngine {
             if (isSameElement(sub, target)) return true;
             if (sub instanceof IState) {
                 if (isVertexInSubvertexes(target, (IState) sub)) return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isInternalTransition(ITransition transition) {
+        if (transition == null) return false;
+        IVertex source = transition.getSource();
+        if (source instanceof IState) {
+            try {
+                ITransition[] internals = ((IState) source).getInternalTransitions();
+                if (internals != null) {
+                    for (ITransition t : internals) {
+                        if (isSameElement(t, transition)) {
+                            return true;
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                // ignore
             }
         }
         return false;
