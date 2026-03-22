@@ -212,7 +212,10 @@ public class SimulationEngine {
         ITransition[] outgoings = source.getOutgoings();
         if (outgoings != null) {
             for (ITransition t : outgoings) {
-                expandTransition(t, new ArrayList<>(Collections.singletonList(t)), paths);
+                // 内部遷移は getOutgoings() にも含まれる場合があるため、ここで除外（後で確実に追加する）
+                if (!isInternalTransition(t)) {
+                    expandTransition(t, new ArrayList<>(Collections.singletonList(t)), paths);
+                }
             }
         }
         
@@ -265,14 +268,21 @@ public class SimulationEngine {
 
         // --- Run-to-Completion Step ---
 
-        // Find a common LCA for all non-internal paths.
+        // Find a common LCA for all non-internal paths (Global LCA).
         IElement lca = null;
+        List<IElement> commonAncestors = null;
         for (TransitionPath path : paths) {
             if (!isInternalTransition(path.getRoot())) {
-                lca = findLCA(path);
-                break;
+                if (commonAncestors == null) {
+                    commonAncestors = new ArrayList<>(getAncestors(path.getSource()));
+                }
+                for (ITransition t : path.transitions) {
+                    commonAncestors = intersectAncestors(commonAncestors, getAncestors(t.getSource()));
+                    commonAncestors = intersectAncestors(commonAncestors, getAncestors(t.getTarget()));
+                }
             }
         }
+        lca = (commonAncestors != null && !commonAncestors.isEmpty()) ? commonAncestors.get(0) : null;
 
         // 1. Collect all active vertices that need to be exited.
         // These are the current active vertices that are descendants of the source of any of the paths.
