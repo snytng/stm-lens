@@ -21,6 +21,12 @@ import snytng.astah.plugin.stm.model.SimulationEngine;
 import snytng.astah.plugin.stm.model.TestManager;
 import snytng.astah.plugin.stm.model.TimerManager;
 import snytng.astah.plugin.stm.model.IllegalSimulationStateException;
+import snytng.astah.plugin.stm.model.test.ParseException;
+import snytng.astah.plugin.stm.model.test.TestResult;
+import snytng.astah.plugin.stm.model.test.TestRunner;
+import snytng.astah.plugin.stm.model.test.TestRunnerContext;
+import snytng.astah.plugin.stm.model.test.TestScript;
+import snytng.astah.plugin.stm.model.test.TestScriptParser;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -44,12 +50,14 @@ import java.awt.Toolkit;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.StringSelection;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Set;
 import java.util.HashSet;
+import java.util.stream.Collectors;
 
 public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
 
@@ -70,6 +78,11 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     private JButton renameButton;
     private JButton deleteButton;
     private JComboBox<String> testCaseCombo;
+
+    // Test Script UI
+    private JTextArea testScriptArea;
+    private JTextArea testResultArea;
+    private JButton runTestScriptButton;
     
     // Navigation UI
     private JButton startNavButton;
@@ -201,8 +214,10 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         controlLine.add(testToggleBtn);
 
         // 2行目: Test Panel
-        JPanel testPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
-        
+        JPanel testPanel = new JPanel(new BorderLayout()); // レイアウト変更
+
+        // Test Panel - Top (Buttons)
+        JPanel testButtonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
         recordButton = new JButton("Record");
         stopButton = new JButton("Stop");
         playButton = new JButton("Play");
@@ -210,24 +225,47 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         renameButton = new JButton("Rename");
         deleteButton = new JButton("Delete");
         testCaseCombo = new JComboBox<>();
-        
+
         stopButton.setEnabled(false);
-        
+
         recordButton.addActionListener(e -> startRecording());
         stopButton.addActionListener(e -> stopRecording());
         playButton.addActionListener(e -> playTest());
         infoButton.addActionListener(e -> showTestInfo());
         renameButton.addActionListener(e -> renameTest());
         deleteButton.addActionListener(e -> deleteTest());
-        
-        testPanel.add(recordButton);
-        testPanel.add(stopButton);
-        testPanel.add(new JLabel("Saved Tests:"));
-        testPanel.add(testCaseCombo);
-        testPanel.add(playButton);
-        testPanel.add(infoButton);
-        testPanel.add(renameButton);
-        testPanel.add(deleteButton);
+
+        testButtonPanel.add(recordButton);
+        testButtonPanel.add(stopButton);
+        testButtonPanel.add(new JLabel("Saved Tests:"));
+        testButtonPanel.add(testCaseCombo);
+        testButtonPanel.add(playButton);
+        testButtonPanel.add(infoButton);
+        testButtonPanel.add(renameButton);
+        testButtonPanel.add(deleteButton);
+
+        // Test Panel - Center (Scripting)
+        JPanel testScriptingPanel = new JPanel(new BorderLayout(5, 5));
+        testScriptArea = new JTextArea(8, 40);
+        testScriptArea.setBorder(BorderFactory.createTitledBorder("Test Script"));
+        JScrollPane scriptScrollPane = new JScrollPane(testScriptArea);
+
+        testResultArea = new JTextArea(5, 40);
+        testResultArea.setEditable(false);
+        testResultArea.setBorder(BorderFactory.createTitledBorder("Test Result"));
+        JScrollPane resultScrollPane = new JScrollPane(testResultArea);
+
+        runTestScriptButton = new JButton("Run Test Script");
+        runTestScriptButton.addActionListener(e -> runTestScript());
+
+        JSplitPane testSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, scriptScrollPane, resultScrollPane);
+        testSplitPane.setResizeWeight(0.6);
+
+        testScriptingPanel.add(testSplitPane, BorderLayout.CENTER);
+        testScriptingPanel.add(runTestScriptButton, BorderLayout.SOUTH);
+
+        testPanel.add(testButtonPanel, BorderLayout.NORTH);
+        testPanel.add(testScriptingPanel, BorderLayout.CENTER);
         testPanel.setVisible(false); // 初期状態は非表示
 
         testToggleBtn.addActionListener(e -> {
@@ -441,6 +479,94 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
                 e.printStackTrace();
             }
         }
+    }
+
+    private void runTestScript() {
+        String scriptText = testScriptArea.getText();
+        testResultArea.setText("Running test script...\n");
+
+        TestScriptParser parser = new TestScriptParser();
+        try {
+            TestScript script = parser.parse(scriptText);
+
+            TestRunnerContext context = createTestRunnerContext();
+            TestRunner runner = new TestRunner(context);
+
+            // Run in a separate thread to avoid blocking the UI
+            new Thread(() -> {
+                TestResult result = runner.run(script);
+                SwingUtilities.invokeLater(() -> {
+                    StringBuilder sb = new StringBuilder();
+                    if (result.success) {
+                        sb.append("✅✅✅ TEST PASSED ✅✅✅\n");
+                    } else {
+                        sb.append("❌❌❌ TEST FAILED ❌❌❌\n");
+                    }
+                    sb.append("---------------------------\n");
+                    result.details.forEach(d -> sb.append(d).append("\n"));
+                    testResultArea.setText(sb.toString());
+                });
+            }).start();
+
+        } catch (ParseException e) {
+            testResultArea.setText("❌ SCRIPT PARSE ERROR ❌\n" + e.getMessage());
+        }
+    }
+
+    private TestRunnerContext createTestRunnerContext() {
+        return new TestRunnerContext() {
+            @Override
+            public void changeTargetDiagram(String targetName) throws Exception {
+                // Find and open the diagram
+                ProjectAccessor pa = AstahAPI.getAstahAPI().getProjectAccessor();
+                IDiagram[] diagrams = pa.getProject().getDiagrams();
+                IStateMachineDiagram targetDiagram = null;
+                for (IDiagram d : diagrams) {
+                    if (d instanceof IStateMachineDiagram && targetName.equals(d.getName())) {
+                        targetDiagram = (IStateMachineDiagram) d;
+                        break;
+                    }
+                }
+
+                if (targetDiagram == null) {
+                    throw new Exception("Diagram not found: " + targetName);
+                }
+
+                // Open diagram and start simulation on UI thread
+                final IStateMachineDiagram finalTargetDiagram = targetDiagram;
+                SwingUtilities.invokeAndWait(() -> {
+                    try {
+                        pa.getViewManager().getDiagramViewManager().open(finalTargetDiagram);
+                        startSimulation(); // Reset and start on the new diagram
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                });
+            }
+
+            @Override
+            public void fireEvent(String eventName) throws Exception {
+                SwingUtilities.invokeAndWait(() -> {
+                    for (Component comp : eventPanel.getComponents()) {
+                        if (comp instanceof JButton && ((JButton) comp).getText().equals(eventName)) {
+                            ((JButton) comp).doClick();
+                            return;
+                        }
+                    }
+                    throw new RuntimeException("Event button not found: " + eventName);
+                });
+            }
+
+            @Override
+            public List<String> getActiveStateNames() {
+                return engine.getCurrentVertices().stream().map(IVertex::getName).collect(Collectors.toList());
+            }
+
+            @Override
+            public List<String> getRecentLogs() {
+                return Arrays.asList(logArea.getText().split("\\r?\\n"));
+            }
+        };
     }
 
     private void copyDebugInfo() {
