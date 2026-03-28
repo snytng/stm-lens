@@ -479,6 +479,17 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
                 IDiagram currentDiagram = projectAccessor.getViewManager().getDiagramViewManager().getCurrentDiagram();
                 if (currentDiagram instanceof IStateMachineDiagram) {
                     IStateMachine sm = ((IStateMachineDiagram) currentDiagram).getStateMachine();
+                    
+                    List<String> existingTests = testManager.loadTestCaseNames(sm);
+                    if (existingTests.contains(name)) {
+                        int confirm = JOptionPane.showConfirmDialog(this,
+                            "Test case '" + name + "' already exists. Overwrite?",
+                            "Confirm Overwrite",
+                            JOptionPane.YES_NO_OPTION,
+                            JOptionPane.WARNING_MESSAGE);
+                        if (confirm != JOptionPane.YES_OPTION) return;
+                    }
+                    
                     testManager.saveTestCase(name, scriptText, sm);
                     logArea.append("Test case '" + name + "' saved to StateMachine '" + sm.getName() + "'.\n");
                     updateTestCaseList((IStateMachineDiagram) currentDiagram);
