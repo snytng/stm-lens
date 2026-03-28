@@ -12,12 +12,13 @@ T36: テスト記録仕様の見直し（常時Generate化） (B16)
 *   **目的**: ユーザーに「記録・生成」を意識させず、シミュレーション操作だけで常に完成されたテストスクリプトが手に入るUXを実現する。
 *   **UI変更**: `[Record]` および `[Generate]` ボタンを廃止する。
 *   **動作仕様**:
-    1.  `Start` 時: `testScriptArea` をクリアし、`Target:` と初期の `AssertState:` を自動出力する。
+    1.  `Start` 時: `testScriptArea` が空でない場合は上書き確認ダイアログを出す。その後クリアし、`Target:` と初期の `AssertState:` を自動出力する。
     2.  遷移時 (`step`): `scriptHistory` に履歴を追加し、エディタの末尾に `Fire:` と `AssertState:` を自動追記する。
     3.  タイムトラベル時: `scriptHistory` を現在地まで切り詰め、エディタの内容を先頭から現在地まで再構築（巻き戻し）する。
+    4.  `Reset` 時: `testScriptArea` が空でない場合はクリア確認ダイアログを出し、承諾されたらエディタを完全にクリアする。
 
 ## TODOリスト
-- [ ] 1. 設計・仕様の合意（現在ここ）
-- [ ] 2. ドキュメント (`requirements.md`, `specification.md`, `usage.md`) の更新。
-- [ ] 3. `StmAnalysisView.java` の改修（ボタン削除と常時Generateロジックの実装）。
+- [x] 1. 設計・仕様の合意
+- [x] 2. ドキュメント (`requirements.md`, `specification.md`, `usage.md`) の更新。
+- [x] 3. `StmAnalysisView.java` の改修（ボタン削除と常時Generateロジックの実装）。
 - [ ] 4. 動作確認。

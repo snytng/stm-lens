@@ -71,8 +71,6 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     private JToggleButton testToggleBtn;
     
     // Test UI
-    private JToggleButton recordButton;
-    private JButton generateButton;
     private JButton saveButton;
     private JButton renameButton;
     private JButton deleteButton;
@@ -261,15 +259,11 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
 
         // Test Panel - Top (Buttons)
         JPanel testButtonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
-        recordButton = new JToggleButton("Record");
-        generateButton = new JButton("Generate");
         saveButton = new JButton("Save");
         renameButton = new JButton("Rename");
         deleteButton = new JButton("Delete");
         testCaseCombo = new JComboBox<>();
 
-        recordButton.addActionListener(e -> toggleRecording());
-        generateButton.addActionListener(e -> generateScript());
         saveButton.addActionListener(e -> saveTestScript());
         renameButton.addActionListener(e -> renameTest());
         deleteButton.addActionListener(e -> deleteTest());
@@ -281,8 +275,6 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
             }
         });
 
-        testButtonPanel.add(recordButton);
-        testButtonPanel.add(generateButton);
         testButtonPanel.add(saveButton);
         testButtonPanel.add(new JLabel("Saved Tests:"));
         testButtonPanel.add(testCaseCombo);
@@ -384,6 +376,21 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         });
     }
 
+    private boolean clearScriptIfConfirmed(String actionName) {
+        if (!testScriptArea.getText().trim().isEmpty()) {
+            int confirm = JOptionPane.showConfirmDialog(this,
+                "The current test script will be cleared. Are you sure you want to " + actionName + "?",
+                "Confirm " + actionName,
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE);
+            if (confirm != JOptionPane.YES_OPTION) {
+                return false;
+            }
+        }
+        testScriptArea.setText("");
+        return true;
+    }
+
     private void startSimulation() {
         try {
             ProjectAccessor projectAccessor = AstahAPI.getAstahAPI().getProjectAccessor();
@@ -391,6 +398,10 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
             IDiagram currentDiagram = viewManager.getCurrentDiagram();
 
             if (currentDiagram instanceof IStateMachineDiagram) {
+                if (!clearScriptIfConfirmed("start a new simulation")) {
+                    return;
+                }
+
                 if(highlighter != null) {
                     highlighter.setDiagram(currentDiagram);
                     highlighter.clearAll();
@@ -407,6 +418,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
                     printStepResult(result);
                     refreshUI();
                     updateTestCaseList((IStateMachineDiagram) currentDiagram);
+                    regenerateScriptFromHistory();
                 } catch (IllegalSimulationStateException e) {
                     handleSimulationException(e);
                 }
@@ -420,6 +432,10 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     }
 
     private void resetSimulation() {
+        if (!clearScriptIfConfirmed("reset the simulation")) {
+            return;
+        }
+
         if(highlighter != null) {
             highlighter.clearAll();
         }
@@ -433,36 +449,11 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         scriptHistory.clear();
         currentTargetDiagramName = null;
         initialStates.clear();
-        if (recordButton.isSelected()) {
-            recordButton.setSelected(false);
-        }
         logArea.setText("Simulation reset.\n");
     }
     
-    private void toggleRecording() {
-        if (recordButton.isSelected()) {
-            logArea.append("Recording started.\n");
-            if (testScriptArea.getText().trim().isEmpty() && currentTargetDiagramName != null) {
-                StringBuilder sb = new StringBuilder();
-                sb.append("Target: ").append(currentTargetDiagramName).append("\n");
-                sb.append("AssertState: ").append(String.join(", ", initialStates)).append("\n");
-                testScriptArea.setText(sb.toString());
-            }
-        } else {
-            logArea.append("Recording stopped.\n");
-        }
-    }
-
-    private void generateScript() {
-        if (currentTargetDiagramName == null) {
-            JOptionPane.showMessageDialog(this, "Please start simulation first.");
-            return;
-        }
-        if (!testScriptArea.getText().trim().isEmpty()) {
-            int confirm = JOptionPane.showConfirmDialog(this, "Overwrite current script?", "Generate Script", JOptionPane.YES_NO_OPTION);
-            if (confirm != JOptionPane.YES_OPTION) return;
-        }
-
+    private void regenerateScriptFromHistory() {
+        if (currentTargetDiagramName == null) return;
         StringBuilder sb = new StringBuilder();
         sb.append("Target: ").append(currentTargetDiagramName).append("\n");
         sb.append("AssertState: ").append(String.join(", ", initialStates)).append("\n");
@@ -472,7 +463,6 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
             sb.append("AssertState: ").append(String.join(", ", step.states)).append("\n");
         }
         testScriptArea.setText(sb.toString());
-        logArea.append("Script generated from history.\n");
     }
     
     private void saveTestScript() {
@@ -535,10 +525,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         if (currentIdx >= 0 && scriptHistory.size() > currentIdx) {
             scriptHistory.subList(currentIdx, scriptHistory.size()).clear();
         }
-        if (recordButton.isSelected()) {
-            recordButton.setSelected(false);
-            logArea.append("Recording stopped automatically due to time travel.\n");
-        }
+        regenerateScriptFromHistory();
     }
 
     private void recordStep(String eventName) {
@@ -548,12 +535,10 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         List<String> currentStates = engine.getCurrentVertices().stream().map(IVertex::getName).collect(Collectors.toList());
         scriptHistory.add(new ScriptStep(eventName, currentStates));
 
-        if (recordButton.isSelected()) {
-            StringBuilder sb = new StringBuilder();
-            sb.append("Fire: ").append(eventName != null ? eventName.trim() : "").append("\n");
-            sb.append("AssertState: ").append(String.join(", ", currentStates)).append("\n");
-            testScriptArea.append(sb.toString());
-        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("Fire: ").append(eventName != null ? eventName.trim() : "").append("\n");
+        sb.append("AssertState: ").append(String.join(", ", currentStates)).append("\n");
+        testScriptArea.append(sb.toString());
     }
 
     private void renameTest() {
