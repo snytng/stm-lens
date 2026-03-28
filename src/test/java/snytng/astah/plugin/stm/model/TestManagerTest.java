@@ -8,62 +8,55 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import com.change_vision.jude.api.inf.model.ITransition;
-import snytng.astah.plugin.stm.model.SimulationEngine.TransitionPath;
-import java.util.Collections;
+import com.change_vision.jude.api.inf.model.IStateMachine;
+import com.change_vision.jude.api.inf.model.ITaggedValue;
 import java.util.List;
 
 @ExtendWith(MockitoExtension.class)
 public class TestManagerTest {
 
     @Mock
-    ITransition transition1;
+    IStateMachine stateMachine;
+
     @Mock
-    ITransition transition2;
+    ITaggedValue taggedValueNames;
+
+    @Mock
+    ITaggedValue taggedValueScript;
 
     @Test
-    public void testRecordingFlow() {
+    public void testLoadTestCaseNames_Empty() {
         TestManager manager = new TestManager();
+        when(stateMachine.getTaggedValues()).thenReturn(new ITaggedValue[0]);
         
-        // Initial state
-        assertFalse(manager.isRecording());
-        assertTrue(manager.getRecordedPaths().isEmpty());
-
-        // Start Recording
-        manager.startRecording();
-        assertTrue(manager.isRecording());
-        assertTrue(manager.getRecordedPaths().isEmpty());
-
-        // Record Transitions
-        when(transition1.getId()).thenReturn("t1");
-        when(transition2.getId()).thenReturn("t2");
-        
-        TransitionPath path1 = new TransitionPath(Collections.singletonList(transition1));
-        TransitionPath path2 = new TransitionPath(Collections.singletonList(transition2));
-        
-        manager.recordTransition(path1);
-        manager.recordTransition(path2);
-        
-        assertEquals(2, manager.getRecordedPaths().size());
-        assertEquals("t1", manager.getRecordedPaths().get(0).get(0));
-        assertEquals("t2", manager.getRecordedPaths().get(1).get(0));
-
-        // Stop Recording
-        manager.stopRecording();
-        assertFalse(manager.isRecording());
-        
-        // Verify transitions are still kept after stop
-        assertEquals(2, manager.getRecordedPaths().size());
+        List<String> names = manager.loadTestCaseNames(stateMachine);
+        assertTrue(names.isEmpty());
     }
     
     @Test
-    public void testRecordTransition_NotRecording() {
+    public void testLoadTestCaseNames_HasNames() {
         TestManager manager = new TestManager();
         
-        // Record without starting
-        TransitionPath path1 = new TransitionPath(Collections.singletonList(transition1));
-        manager.recordTransition(path1);
+        when(taggedValueNames.getKey()).thenReturn("stm_test_case_names");
+        when(taggedValueNames.getValue()).thenReturn("Test1,Test2,Test3");
+        when(stateMachine.getTaggedValues()).thenReturn(new ITaggedValue[]{taggedValueNames});
         
-        assertTrue(manager.getRecordedPaths().isEmpty());
+        List<String> names = manager.loadTestCaseNames(stateMachine);
+        assertEquals(3, names.size());
+        assertTrue(names.contains("Test1"));
+        assertTrue(names.contains("Test2"));
+        assertTrue(names.contains("Test3"));
+    }
+
+    @Test
+    public void testGetTestCaseScript_Found() {
+        TestManager manager = new TestManager();
+        
+        when(taggedValueScript.getKey()).thenReturn("stm_test_case_Test1");
+        when(taggedValueScript.getValue()).thenReturn("Target: model\nFire: event1\nAssertState: State2");
+        when(stateMachine.getTaggedValues()).thenReturn(new ITaggedValue[]{taggedValueScript});
+        
+        String script = manager.getTestCaseScript("Test1", stateMachine);
+        assertEquals("Target: model\nFire: event1\nAssertState: State2", script);
     }
 }

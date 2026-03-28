@@ -71,10 +71,9 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     private JToggleButton testToggleBtn;
     
     // Test UI
-    private JButton recordButton;
-    private JButton stopButton;
-    private JButton playButton;
-    private JButton infoButton;
+    private JToggleButton recordButton;
+    private JButton generateButton;
+    private JButton saveButton;
     private JButton renameButton;
     private JButton deleteButton;
     private JComboBox<String> testCaseCombo;
@@ -99,6 +98,20 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     private DiagramHighlighter highlighter;
     private final Set<String> firedTimers = new HashSet<>();
     
+    // Script Generation History
+    private String currentTargetDiagramName;
+    private List<String> initialStates = new ArrayList<>();
+    private final List<ScriptStep> scriptHistory = new ArrayList<>();
+
+    private static class ScriptStep {
+        String eventName;
+        List<String> states;
+        ScriptStep(String eventName, List<String> states) {
+            this.eventName = eventName;
+            this.states = states;
+        }
+    }
+
     private final IDiagramEditorSelectionListener diagramEditorSelectionListener = e -> {
         try {
             ProjectAccessor projectAccessor = AstahAPI.getAstahAPI().getProjectAccessor();
@@ -147,7 +160,13 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         engine.setStepListener(result -> {
             if (result != null) {
                 firedTimers.clear(); // Reset fired timers on step
-                testManager.recordTransition(result.path);
+                
+                String eventName = result.path != null ? result.path.getRoot().getEvent() : "";
+                if (result.executedPaths != null && !result.executedPaths.isEmpty()) {
+                    eventName = result.executedPaths.get(0).getRoot().getEvent();
+                }
+                recordStep(eventName);
+                
                 printStepResult(result);
                 refreshUI();
             }
@@ -181,10 +200,10 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         endNavButton = new JButton(">>|");
         stepLabel = new JLabel("Step: 0 / 0");
 
-        startNavButton.addActionListener(e -> { engine.goToStart(); refreshUI(); logArea.append("Moved to Start.\n"); });
-        prevNavButton.addActionListener(e -> { engine.stepBack(); refreshUI(); logArea.append("Stepped back.\n"); });
-        nextNavButton.addActionListener(e -> { engine.stepForward(); refreshUI(); logArea.append("Stepped forward.\n"); });
-        endNavButton.addActionListener(e -> { engine.goToEnd(); refreshUI(); logArea.append("Moved to End.\n"); });
+        startNavButton.addActionListener(e -> { engine.goToStart(); onTimeTravel(); logArea.append("Moved to Start.\n"); });
+        prevNavButton.addActionListener(e -> { engine.stepBack(); onTimeTravel(); logArea.append("Stepped back.\n"); });
+        nextNavButton.addActionListener(e -> { engine.stepForward(); onTimeTravel(); logArea.append("Stepped forward.\n"); });
+        endNavButton.addActionListener(e -> { engine.goToEnd(); onTimeTravel(); logArea.append("Moved to End.\n"); });
 
         copyDebugButton = new JButton("Copy Debug");
         stateLabel = new JLabel("Current State: -");
@@ -219,29 +238,31 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
 
         // Test Panel - Top (Buttons)
         JPanel testButtonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
-        recordButton = new JButton("Record");
-        stopButton = new JButton("Stop");
-        playButton = new JButton("Play");
-        infoButton = new JButton("Info");
+        recordButton = new JToggleButton("Record");
+        generateButton = new JButton("Generate");
+        saveButton = new JButton("Save");
         renameButton = new JButton("Rename");
         deleteButton = new JButton("Delete");
         testCaseCombo = new JComboBox<>();
 
-        stopButton.setEnabled(false);
-
-        recordButton.addActionListener(e -> startRecording());
-        stopButton.addActionListener(e -> stopRecording());
-        playButton.addActionListener(e -> playTest());
-        infoButton.addActionListener(e -> showTestInfo());
+        recordButton.addActionListener(e -> toggleRecording());
+        generateButton.addActionListener(e -> generateScript());
+        saveButton.addActionListener(e -> saveTestScript());
         renameButton.addActionListener(e -> renameTest());
         deleteButton.addActionListener(e -> deleteTest());
 
+        // ドロップダウンの選択変更時にスクリプトをロードする
+        testCaseCombo.addActionListener(e -> {
+            if (testCaseCombo.getSelectedItem() != null && testCaseCombo.isPopupVisible()) {
+                loadSelectedTestScript();
+            }
+        });
+
         testButtonPanel.add(recordButton);
-        testButtonPanel.add(stopButton);
+        testButtonPanel.add(generateButton);
+        testButtonPanel.add(saveButton);
         testButtonPanel.add(new JLabel("Saved Tests:"));
         testButtonPanel.add(testCaseCombo);
-        testButtonPanel.add(playButton);
-        testButtonPanel.add(infoButton);
         testButtonPanel.add(renameButton);
         testButtonPanel.add(deleteButton);
 
@@ -348,6 +369,10 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
                 firedTimers.clear();
                 try {
                     SimulationEngine.StepResult result = engine.start((IStateMachineDiagram) currentDiagram);
+                    currentTargetDiagramName = currentDiagram.getName();
+                    initialStates = engine.getCurrentVertices().stream().map(IVertex::getName).collect(Collectors.toList());
+                    scriptHistory.clear();
+                    
                     logArea.setText("Simulation started.\n");
                     printStepResult(result);
                     refreshUI();
@@ -375,31 +400,69 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         eventPanel.removeAll();
         eventPanel.revalidate();
         eventPanel.repaint();
+        scriptHistory.clear();
+        currentTargetDiagramName = null;
+        initialStates.clear();
+        if (recordButton.isSelected()) {
+            recordButton.setSelected(false);
+        }
         logArea.setText("Simulation reset.\n");
     }
     
-    private void startRecording() {
-        testManager.startRecording();
-        recordButton.setEnabled(false);
-        stopButton.setEnabled(true);
-        logArea.append("Recording started...\n");
+    private void toggleRecording() {
+        if (recordButton.isSelected()) {
+            logArea.append("Recording started.\n");
+            if (testScriptArea.getText().trim().isEmpty() && currentTargetDiagramName != null) {
+                StringBuilder sb = new StringBuilder();
+                sb.append("Target: ").append(currentTargetDiagramName).append("\n");
+                sb.append("AssertState: ").append(String.join(", ", initialStates)).append("\n");
+                testScriptArea.setText(sb.toString());
+            }
+        } else {
+            logArea.append("Recording stopped.\n");
+        }
+    }
+
+    private void generateScript() {
+        if (currentTargetDiagramName == null) {
+            JOptionPane.showMessageDialog(this, "Please start simulation first.");
+            return;
+        }
+        if (!testScriptArea.getText().trim().isEmpty()) {
+            int confirm = JOptionPane.showConfirmDialog(this, "Overwrite current script?", "Generate Script", JOptionPane.YES_NO_OPTION);
+            if (confirm != JOptionPane.YES_OPTION) return;
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("Target: ").append(currentTargetDiagramName).append("\n");
+        sb.append("AssertState: ").append(String.join(", ", initialStates)).append("\n");
+        for (ScriptStep step : scriptHistory) {
+            String evt = step.eventName != null ? step.eventName.trim() : "";
+            sb.append("Fire: ").append(evt).append("\n");
+            sb.append("AssertState: ").append(String.join(", ", step.states)).append("\n");
+        }
+        testScriptArea.setText(sb.toString());
+        logArea.append("Script generated from history.\n");
     }
     
-    private void stopRecording() {
-        testManager.stopRecording();
-        recordButton.setEnabled(true);
-        stopButton.setEnabled(false);
+    private void saveTestScript() {
+        String scriptText = testScriptArea.getText();
+        if (scriptText.trim().isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Script is empty.");
+            return;
+        }
         
-        String name = JOptionPane.showInputDialog(this, "Enter test case name:");
+        String name = JOptionPane.showInputDialog(this, "Enter test case name:", testCaseCombo.getSelectedItem());
         if (name != null && !name.trim().isEmpty()) {
             try {
                 ProjectAccessor projectAccessor = AstahAPI.getAstahAPI().getProjectAccessor();
                 IDiagram currentDiagram = projectAccessor.getViewManager().getDiagramViewManager().getCurrentDiagram();
                 if (currentDiagram instanceof IStateMachineDiagram) {
                     IStateMachine sm = ((IStateMachineDiagram) currentDiagram).getStateMachine();
-                    testManager.saveTestCase(name, sm);
+                    testManager.saveTestCase(name, scriptText, sm);
                     logArea.append("Test case '" + name + "' saved to StateMachine '" + sm.getName() + "'.\n");
                     updateTestCaseList((IStateMachineDiagram) currentDiagram);
+                    testCaseCombo.setSelectedItem(name);
                 }
             } catch (Exception e) {
                 logArea.append("Failed to save test case: " + e.getMessage() + "\n");
@@ -408,24 +471,18 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         }
     }
     
-    private void playTest() {
+    private void loadSelectedTestScript() {
         String selectedTest = (String) testCaseCombo.getSelectedItem();
         if (selectedTest == null) return;
-        
-        resetSimulation();
-        startSimulation(); // Start fresh
         
         try {
             ProjectAccessor projectAccessor = AstahAPI.getAstahAPI().getProjectAccessor();
             IDiagram currentDiagram = projectAccessor.getViewManager().getDiagramViewManager().getCurrentDiagram();
             if (currentDiagram instanceof IStateMachineDiagram) {
-                logArea.append("Playing test case '" + selectedTest + "'...\n");
-                try {
-                    testManager.playTestCase(selectedTest, ((IStateMachineDiagram) currentDiagram).getStateMachine(), engine, this::refreshUI);
-                    logArea.append("Test case playback finished.\n");
-                    refreshUI();
-                } catch (IllegalSimulationStateException ex) {
-                    handleSimulationException(ex);
+                String scriptText = testManager.getTestCaseScript(selectedTest, ((IStateMachineDiagram) currentDiagram).getStateMachine());
+                if (scriptText != null) {
+                    testScriptArea.setText(scriptText);
+                    logArea.append("Loaded test script: " + selectedTest + "\n");
                 }
             }
         } catch (Exception e) {
@@ -433,19 +490,30 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         }
     }
 
-    private void showTestInfo() {
-        String selectedTest = (String) testCaseCombo.getSelectedItem();
-        if (selectedTest == null) return;
-        
-        try {
-            ProjectAccessor projectAccessor = AstahAPI.getAstahAPI().getProjectAccessor();
-            IDiagram currentDiagram = projectAccessor.getViewManager().getDiagramViewManager().getCurrentDiagram();
-            if (currentDiagram instanceof IStateMachineDiagram) {
-                String info = testManager.getTestCaseInfo(selectedTest, ((IStateMachineDiagram) currentDiagram).getStateMachine());
-                logArea.append("--- Test Info ---\n" + info + "\n");
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
+    private void onTimeTravel() {
+        refreshUI();
+        int currentIdx = engine.getCurrentSnapshotIndex();
+        if (currentIdx >= 0 && scriptHistory.size() > currentIdx) {
+            scriptHistory.subList(currentIdx, scriptHistory.size()).clear();
+        }
+        if (recordButton.isSelected()) {
+            recordButton.setSelected(false);
+            logArea.append("Recording stopped automatically due to time travel.\n");
+        }
+    }
+
+    private void recordStep(String eventName) {
+        int currentIdx = engine.getCurrentSnapshotIndex();
+        if (scriptHistory.size() >= currentIdx) return; // Prevent duplicate recording
+
+        List<String> currentStates = engine.getCurrentVertices().stream().map(IVertex::getName).collect(Collectors.toList());
+        scriptHistory.add(new ScriptStep(eventName, currentStates));
+
+        if (recordButton.isSelected()) {
+            StringBuilder sb = new StringBuilder();
+            sb.append("Fire: ").append(eventName != null ? eventName.trim() : "").append("\n");
+            sb.append("AssertState: ").append(String.join(", ", currentStates)).append("\n");
+            testScriptArea.append(sb.toString());
         }
     }
 
@@ -761,8 +829,10 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         firedTimers.clear();
         try {
             SimulationEngine.StepResult result = engine.step(paths, null);
-            paths.forEach(testManager::recordTransition); // Record all paths in the step
             if (result == null) return;
+
+            String eventName = paths.get(0).getRoot().getEvent();
+            recordStep(eventName);
 
             printStepResult(result);
             refreshUI();

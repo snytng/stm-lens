@@ -34,10 +34,10 @@ Selenium IDEやPostman等のUIテスト自動化ツールのUXを参考に、以
     *   `TestManager` クラスで行っていた「遷移IDのリスト」による古い再生ロジックは破棄し、テストの実行は全て T30 で作成した「テキストスクリプトのパース＆実行エンジン」に一本化する。
 
 ## TODOリスト
-- [ ] 1. 設計・仕様の合意（現在ここ）
-- [ ] 2. ドキュメント (`requirements.md`, `specification.md`, `design.md`) の事前更新。
-- [ ] 3. 古い `TestManager` のJSON保存・再生ロジックの廃止とリファクタリング。
-- [ ] 4. TaggedValue へのテキストスクリプトの保存・読み込みロジックの実装（新しいTaggedValueへの移行）。
-- [ ] 5. `StmAnalysisView` における、操作時のスクリプト自動生成（文字列構築）とエディタへの追記処理の実装。
-- [ ] 6. 動作確認とテスト。
+- [x] 1. 設計・仕様の合意
+- [x] 2. ドキュメント (`requirements.md`, `specification.md`, `design.md`) の事前更新。
+- [x] 3. 古い `TestManager` のJSON保存・再生ロジックの廃止とリファクタリング。
+- [x] 4. TaggedValue へのテキストスクリプトの保存・読み込みロジックの実装（新しいTaggedValueへの移行）。
+- [x] 5. `StmAnalysisView` における、操作時のスクリプト自動生成（文字列構築）とエディタへの追記処理の実装。
+- [ ] 6. 【動作確認待ち】ビルド、およびastah*上でのテスト。
 - [ ] 
