@@ -1119,6 +1119,22 @@ public class SimulationEngine {
             sb.append(" (No Diagram/StateMachine loaded)\n");
         }
         
+        // 4. Available Transitions
+        sb.append("\n[Available Transitions]\n");
+        List<TransitionPath> availablePaths = getAvailableTransitions();
+        if (availablePaths.isEmpty()) {
+            sb.append(" (None)\n");
+        } else {
+            for (TransitionPath path : availablePaths) {
+                ITransition root = path.getRoot();
+                String event = root.getEvent() != null ? root.getEvent() : "null";
+                String guard = root.getGuard() != null ? root.getGuard() : "null";
+                String action = root.getAction() != null ? root.getAction() : "null";
+                String targetName = path.getTarget() != null ? path.getTarget().getName() : "Internal(null)";
+                sb.append(" - Event: '").append(event).append("' [Guard: '").append(guard).append("'] / Action: '").append(action).append("' -> Target: ").append(targetName).append("\n");
+            }
+        }
+        
         return sb.toString();
     }
 

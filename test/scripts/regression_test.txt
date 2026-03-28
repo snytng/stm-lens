@@ -1,0 +1,122 @@
+// ==========================================
+// Stm Lens 回帰テストスクリプト
+// ==========================================
+
+// --- No.11 複合状態の実装 ---
+Target: Test Case 11
+AssertState: StateA
+// Case 11-1: 複合状態への遷移
+Fire: e1
+AssertState: StateB1
+AssertLog: [Exit] exA
+AssertLog: [Entry] entB
+AssertLog: [Entry] entB1
+// Case 11-2: 複合状態内部での遷移
+Fire: e2
+AssertState: StateB2
+AssertLog: [Exit] exB1
+AssertLog: [Entry] entB2
+// Case 11-3: 複合状態からの脱出
+Fire: e3
+AssertState: StateA
+AssertLog: [Exit] exB2
+AssertLog: [Exit] exB
+AssertLog: [Entry] entA
+// Case 11-4: 階層をまたぐ直接遷移
+Target: Test Case 11
+AssertState: StateA
+Fire: e4
+AssertState: StateB2
+AssertLog: [Exit] exA
+AssertLog: [Entry] entB
+AssertLog: [Entry] entB2
+
+// --- No.12 平行状態の実装 ---
+Target: Test Case 12
+// Case 12-1: 平行状態への遷移と同時アクティブ化
+AssertState: S1, S3
+// Case 12-2: 各リージョンの独立遷移
+Fire: e1
+AssertState: S2, S3
+AssertLog: [Exit] exS1
+AssertLog: [Entry] entS2
+// Case 12-3: 複合状態からの脱出
+Fire: e3
+AssertState: StateEnd
+AssertLog: [Exit] exA
+
+// --- No.15 履歴状態の実装 (Shallow / Deep) ---
+Target: TestModel_No15
+// Case 15-1: 浅い履歴 (Shallow History) の動作
+Fire: toB_init
+AssertState: S1
+Fire: e1
+AssertState: S2
+Fire: back
+AssertState: StateA
+Fire: toB_hist
+AssertState: S2
+AssertLog: [Entry] entS2
+// Case 15-2: 深い履歴 (Deep History) の動作
+Fire: back
+AssertState: StateA
+Fire: toC_init
+AssertState: Sub1
+Fire: e2
+AssertState: Sub2
+Fire: back
+AssertState: StateA
+Fire: toC_hist
+AssertState: Sub2
+AssertLog: [Entry] entSub2
+
+// --- No.15 複合・並行・履歴の組み合わせ ---
+Target: TestModel_No15_Complex
+// Case 15-3
+Fire: toB
+AssertState: S1, S3
+Fire: e1
+AssertState: S2, S3
+Fire: e2
+AssertState: S2, S4
+Fire: back
+AssertState: StateA
+Fire: toHistory
+AssertState: S2, S3
+AssertLog: [Entry] entS2
+AssertLog: [Entry] entS3
+
+// --- No.17 条件分岐（ジャンクション） ---
+Target: TestModel_No17
+// Case 17-1
+AssertState: StateA
+Fire: e1 [x > 0]
+AssertState: StateB
+
+// --- No.18 条件分岐（選択） ---
+Target: TestModel_No18_Choice
+// Case 18-1
+AssertState: StateA
+Fire: e1 [else]
+AssertState: StateC
+
+// --- No.23 並行状態の同時遷移（Run-to-Completion） ---
+Target: TestModel_No23
+// Case 23-1
+AssertState: S1, S3
+Fire: e1
+AssertState: S2, S4
+
+// --- No.29 内部遷移（Internal Transition） ---
+Target: TestModel_No29
+// Case 29-1: 内部遷移
+AssertState: StateA
+Fire: internal_event
+AssertState: StateA
+AssertLog: [Action] internal_act
+// Case 29-2: 自己遷移
+Fire: self_event
+AssertState: StateA
+AssertLog: [Exit] exitA
+AssertLog: [Action] self_act
+AssertLog: [Entry] entryA

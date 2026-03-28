@@ -83,6 +83,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     private JTextArea testScriptArea;
     private JTextArea testResultArea;
     private JButton runTestScriptButton;
+    private JLabel testStatusLabel;
     
     // Navigation UI
     private JButton startNavButton;
@@ -246,23 +247,33 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
 
         // Test Panel - Center (Scripting)
         JPanel testScriptingPanel = new JPanel(new BorderLayout(5, 5));
+        
+        // Script Control Bar
+        JPanel scriptControlBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
+        runTestScriptButton = new JButton("▶ Run Script");
+        runTestScriptButton.addActionListener(e -> runTestScript());
+        testStatusLabel = new JLabel(" Ready");
+        testStatusLabel.setFont(testStatusLabel.getFont().deriveFont(java.awt.Font.BOLD));
+        scriptControlBar.add(runTestScriptButton);
+        scriptControlBar.add(testStatusLabel);
+
         testScriptArea = new JTextArea(8, 40);
         testScriptArea.setBorder(BorderFactory.createTitledBorder("Test Script"));
         JScrollPane scriptScrollPane = new JScrollPane(testScriptArea);
 
-        testResultArea = new JTextArea(5, 40);
+        testResultArea = new JTextArea(8, 40);
         testResultArea.setEditable(false);
         testResultArea.setBorder(BorderFactory.createTitledBorder("Test Result"));
         JScrollPane resultScrollPane = new JScrollPane(testResultArea);
 
-        runTestScriptButton = new JButton("Run Test Script");
-        runTestScriptButton.addActionListener(e -> runTestScript());
 
-        JSplitPane testSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, scriptScrollPane, resultScrollPane);
-        testSplitPane.setResizeWeight(0.6);
+        JSplitPane testSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, scriptScrollPane, resultScrollPane);
+        testSplitPane.setResizeWeight(0.5); // 左右均等に分割
+        testSplitPane.setOneTouchExpandable(true);
+        testSplitPane.setContinuousLayout(true);
 
+        testScriptingPanel.add(scriptControlBar, BorderLayout.NORTH);
         testScriptingPanel.add(testSplitPane, BorderLayout.CENTER);
-        testScriptingPanel.add(runTestScriptButton, BorderLayout.SOUTH);
 
         testPanel.add(testButtonPanel, BorderLayout.NORTH);
         testPanel.add(testScriptingPanel, BorderLayout.CENTER);
@@ -484,6 +495,8 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     private void runTestScript() {
         String scriptText = testScriptArea.getText();
         testResultArea.setText("Running test script...\n");
+        testStatusLabel.setText(" ⏳ Running...");
+        testStatusLabel.setForeground(Color.BLACK);
 
         TestScriptParser parser = new TestScriptParser();
         try {
@@ -499,8 +512,12 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
                     StringBuilder sb = new StringBuilder();
                     if (result.success) {
                         sb.append("✅✅✅ TEST PASSED ✅✅✅\n");
+                        testStatusLabel.setText(" ✅ PASSED");
+                        testStatusLabel.setForeground(new Color(0, 128, 0)); // Dark Green
                     } else {
                         sb.append("❌❌❌ TEST FAILED ❌❌❌\n");
+                        testStatusLabel.setText(" ❌ FAILED");
+                        testStatusLabel.setForeground(Color.RED);
                     }
                     sb.append("---------------------------\n");
                     result.details.forEach(d -> sb.append(d).append("\n"));
@@ -510,6 +527,8 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
 
         } catch (ParseException e) {
             testResultArea.setText("❌ SCRIPT PARSE ERROR ❌\n" + e.getMessage());
+            testStatusLabel.setText(" ❌ PARSE ERROR");
+            testStatusLabel.setForeground(Color.RED);
         }
     }
 
@@ -534,27 +553,41 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
 
                 // Open diagram and start simulation on UI thread
                 final IStateMachineDiagram finalTargetDiagram = targetDiagram;
-                SwingUtilities.invokeAndWait(() -> {
-                    try {
-                        pa.getViewManager().getDiagramViewManager().open(finalTargetDiagram);
-                        startSimulation(); // Reset and start on the new diagram
-                    } catch (Exception e) {
-                        throw new RuntimeException(e);
+                try {
+                    SwingUtilities.invokeAndWait(() -> {
+                        try {
+                            pa.getViewManager().getDiagramViewManager().open(finalTargetDiagram);
+                            startSimulation(); // Reset and start on the new diagram
+                        } catch (Exception e) {
+                            throw new RuntimeException(e);
+                        }
+                    });
+                } catch (java.lang.reflect.InvocationTargetException e) {
+                    if (e.getCause() instanceof Exception) {
+                        throw (Exception) e.getCause();
                     }
-                });
+                    throw e;
+                }
             }
 
             @Override
             public void fireEvent(String eventName) throws Exception {
-                SwingUtilities.invokeAndWait(() -> {
-                    for (Component comp : eventPanel.getComponents()) {
-                        if (comp instanceof JButton && ((JButton) comp).getText().equals(eventName)) {
-                            ((JButton) comp).doClick();
-                            return;
+                try {
+                    SwingUtilities.invokeAndWait(() -> {
+                        for (Component comp : eventPanel.getComponents()) {
+                            if (comp instanceof JButton && ((JButton) comp).getText().equals(eventName)) {
+                                ((JButton) comp).doClick();
+                                return;
+                            }
                         }
+                        throw new RuntimeException("Event button not found: " + eventName);
+                    });
+                } catch (java.lang.reflect.InvocationTargetException e) {
+                    if (e.getCause() instanceof Exception) {
+                        throw (Exception) e.getCause();
                     }
-                    throw new RuntimeException("Event button not found: " + eventName);
-                });
+                    throw e;
+                }
             }
 
             @Override
@@ -695,15 +728,15 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     private String getPathLabel(SimulationEngine.TransitionPath path, List<SimulationEngine.TransitionPath> allPaths) {
         ITransition root = path.getRoot();
         String eventName = root.getEvent();
-        String label = (eventName != null && !eventName.isEmpty()) ? eventName : "(anonymous)";
+        String label = (eventName != null && !eventName.trim().isEmpty()) ? eventName.trim() : "(anonymous)";
 
         // Collect guards from the path
         StringBuilder guards = new StringBuilder();
         for (ITransition t : path.transitions) {
             String g = t.getGuard();
-            if (g != null && !g.isEmpty()) {
+            if (g != null && !g.trim().isEmpty()) {
                 if (guards.length() > 0) guards.append(" & ");
-                guards.append(g);
+                guards.append(g.trim());
             }
         }
 
@@ -711,10 +744,11 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
             label += " [" + guards.toString() + "]";
         } else {
             // Add [else] if another path exists with the same event name but has a guard
+            String finalEventName = eventName != null ? eventName.trim() : "";
             boolean hasGuardedSibling = allPaths.stream().anyMatch(p -> 
                 p != path && 
-                eventName.equals(p.getRoot().getEvent()) && 
-                p.transitions.stream().anyMatch(t -> t.getGuard() != null && !t.getGuard().isEmpty())
+                finalEventName.equals(p.getRoot().getEvent() != null ? p.getRoot().getEvent().trim() : "") && 
+                p.transitions.stream().anyMatch(t -> t.getGuard() != null && !t.getGuard().trim().isEmpty())
             );
             if(hasGuardedSibling) {
                  label += " [else]";
@@ -755,7 +789,8 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         if (result == null) return;
 
         String eventName = (result.path != null) ? result.path.getRoot().getEvent() : "Initial";
-        if (eventName == null || eventName.isEmpty()) eventName = "(anonymous)";
+        if (eventName == null || eventName.trim().isEmpty()) eventName = "(anonymous)";
+        else eventName = eventName.trim();
         if (result.note != null && !result.note.isEmpty()) {
             eventName += " " + result.note;
         }
@@ -791,12 +826,16 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
 
         if (result.executedPaths != null && !result.executedPaths.isEmpty()) {
             for (SimulationEngine.TransitionPath path : result.executedPaths) {
+                String sourceName = path.getSource() != null ? path.getSource().getName() : "Unknown";
+                String targetName = path.getTarget() != null ? path.getTarget().getName() : "Internal";
                 logArea.append(String.format("Transition: %s -> %s\n",
-                        path.getSource().getName(), path.getTarget().getName()));
+                        sourceName, targetName));
             }
         } else {
+            String sourceName = result.source != null ? result.source.getName() : "Unknown";
+            String targetName = result.target != null ? result.target.getName() : "Internal";
             logArea.append(String.format("Transition: %s -> %s\n",
-                    result.source.getName(), result.target.getName()));
+                    sourceName, targetName));
         }
     }
 

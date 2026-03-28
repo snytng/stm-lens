@@ -16,7 +16,7 @@ public class TestScriptParser {
         for (String line : lines) {
             lineNumber++;
             String trimmedLine = line.trim();
-            if (trimmedLine.isEmpty()) {
+            if (trimmedLine.isEmpty() || trimmedLine.startsWith("//")) {
                 continue;
             }
 
