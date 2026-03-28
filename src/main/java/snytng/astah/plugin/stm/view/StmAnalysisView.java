@@ -273,9 +273,16 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         JPanel scriptControlBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
         runTestScriptButton = new JButton("▶ Run Script");
         runTestScriptButton.addActionListener(e -> runTestScript());
+        
+        JButton clearScriptButton = new JButton("🗑");
+        clearScriptButton.setToolTipText("Clear Script");
+        clearScriptButton.addActionListener(e -> testScriptArea.setText(""));
+
         testStatusLabel = new JLabel(" Ready");
         testStatusLabel.setFont(testStatusLabel.getFont().deriveFont(java.awt.Font.BOLD));
+        
         scriptControlBar.add(runTestScriptButton);
+        scriptControlBar.add(clearScriptButton);
         scriptControlBar.add(testStatusLabel);
 
         testScriptArea = new JTextArea(8, 40);
