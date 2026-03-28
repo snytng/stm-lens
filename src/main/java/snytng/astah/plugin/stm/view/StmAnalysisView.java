@@ -161,9 +161,32 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
             if (result != null) {
                 firedTimers.clear(); // Reset fired timers on step
                 
-                String eventName = result.path != null ? result.path.getRoot().getEvent() : "";
+                String eventName = "";
+                SimulationEngine.TransitionPath path = null;
                 if (result.executedPaths != null && !result.executedPaths.isEmpty()) {
-                    eventName = result.executedPaths.get(0).getRoot().getEvent();
+                    path = result.executedPaths.get(0);
+                } else if (result.path != null) {
+                    path = result.path;
+                }
+                
+                if (path != null) {
+                    eventName = path.getRoot().getEvent();
+                    if (eventName == null || eventName.trim().isEmpty()) {
+                        eventName = "(anonymous)";
+                    } else {
+                        eventName = eventName.trim();
+                    }
+                    StringBuilder guards = new StringBuilder();
+                    for (ITransition t : path.transitions) {
+                        String g = t.getGuard();
+                        if (g != null && !g.trim().isEmpty()) {
+                            if (guards.length() > 0) guards.append(" & ");
+                            guards.append(g.trim());
+                        }
+                    }
+                    if (guards.length() > 0) {
+                        eventName += " [" + guards.toString() + "]";
+                    }
                 }
                 recordStep(eventName);
                 
@@ -784,7 +807,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
                     }
                     colorIndex++;
 
-                    btn.addActionListener(e -> fireTransitions(groupedPaths));
+                    btn.addActionListener(e -> fireTransitions(groupedPaths, label));
                     eventPanel.add(btn);
                 }
 
@@ -832,14 +855,13 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         return label;
     }
 
-    private void fireTransitions(List<SimulationEngine.TransitionPath> paths) {
+    private void fireTransitions(List<SimulationEngine.TransitionPath> paths, String label) {
         firedTimers.clear();
         try {
             SimulationEngine.StepResult result = engine.step(paths, null);
             if (result == null) return;
 
-            String eventName = paths.get(0).getRoot().getEvent();
-            recordStep(eventName);
+            recordStep(label);
 
             printStepResult(result);
             refreshUI();
