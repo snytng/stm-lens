@@ -505,6 +505,15 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         String selectedTest = (String) testCaseCombo.getSelectedItem();
         if (selectedTest == null) return;
         
+        if (!testScriptArea.getText().trim().isEmpty()) {
+            int confirm = JOptionPane.showConfirmDialog(this, 
+                "The current script will be overwritten. Are you sure you want to load '" + selectedTest + "'?", 
+                "Load Test Script", 
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE);
+            if (confirm != JOptionPane.YES_OPTION) return;
+        }
+        
         try {
             ProjectAccessor projectAccessor = AstahAPI.getAstahAPI().getProjectAccessor();
             IDiagram currentDiagram = projectAccessor.getViewManager().getDiagramViewManager().getCurrentDiagram();
