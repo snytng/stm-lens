@@ -72,6 +72,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     
     // Test UI
     private JButton saveButton;
+    private JButton loadButton;
     private JButton renameButton;
     private JButton deleteButton;
     private JComboBox<String> testCaseCombo;
@@ -95,6 +96,9 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     private final TestManager testManager = new TestManager();
     private DiagramHighlighter highlighter;
     private final Set<String> firedTimers = new HashSet<>();
+    
+    private volatile boolean isRunningTest = false; // 自動テスト実行中フラグ
+    private boolean isAutoGenerateMode = false; // スクリプト自動同期モードフラグ
     
     // Script Generation History
     private String currentTargetDiagramName;
@@ -260,24 +264,20 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         // Test Panel - Top (Buttons)
         JPanel testButtonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
         saveButton = new JButton("Save");
+        loadButton = new JButton("Load");
         renameButton = new JButton("Rename");
         deleteButton = new JButton("Delete");
         testCaseCombo = new JComboBox<>();
 
         saveButton.addActionListener(e -> saveTestScript());
+        loadButton.addActionListener(e -> loadSelectedTestScript());
         renameButton.addActionListener(e -> renameTest());
         deleteButton.addActionListener(e -> deleteTest());
-
-        // ドロップダウンの選択変更時にスクリプトをロードする
-        testCaseCombo.addActionListener(e -> {
-            if (testCaseCombo.getSelectedItem() != null && testCaseCombo.isPopupVisible()) {
-                loadSelectedTestScript();
-            }
-        });
 
         testButtonPanel.add(saveButton);
         testButtonPanel.add(new JLabel("Saved Tests:"));
         testButtonPanel.add(testCaseCombo);
+        testButtonPanel.add(loadButton);
         testButtonPanel.add(renameButton);
         testButtonPanel.add(deleteButton);
 
@@ -377,6 +377,8 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     }
 
     private boolean clearScriptIfConfirmed(String actionName) {
+        if (isRunningTest) return true; // 自動実行中はクリア確認を行わず、スクリプトも消さない
+        
         if (!testScriptArea.getText().trim().isEmpty()) {
             int confirm = JOptionPane.showConfirmDialog(this,
                 "The current test script will be cleared. Are you sure you want to " + actionName + "?",
@@ -392,14 +394,20 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     }
 
     private void startSimulation() {
+        startSimulation(true);
+    }
+
+    private void startSimulation(boolean enableAutoGenerate) {
         try {
             ProjectAccessor projectAccessor = AstahAPI.getAstahAPI().getProjectAccessor();
             IDiagramViewManager viewManager = projectAccessor.getViewManager().getDiagramViewManager();
             IDiagram currentDiagram = viewManager.getCurrentDiagram();
 
             if (currentDiagram instanceof IStateMachineDiagram) {
-                if (!clearScriptIfConfirmed("start a new simulation")) {
-                    return;
+                if (enableAutoGenerate) {
+                    if (!clearScriptIfConfirmed("start a new simulation")) {
+                        return;
+                    }
                 }
 
                 if(highlighter != null) {
@@ -410,6 +418,10 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
                 firedTimers.clear();
                 try {
                     SimulationEngine.StepResult result = engine.start((IStateMachineDiagram) currentDiagram);
+                    
+                    isAutoGenerateMode = enableAutoGenerate;
+                    
+                    // 常に内部の履歴トラッキングは開始する（エディタに反映するかどうかはモード次第）
                     currentTargetDiagramName = currentDiagram.getName();
                     initialStates = engine.getCurrentVertices().stream().map(IVertex::getName).collect(Collectors.toList());
                     scriptHistory.clear();
@@ -418,12 +430,17 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
                     printStepResult(result);
                     refreshUI();
                     updateTestCaseList((IStateMachineDiagram) currentDiagram);
-                    regenerateScriptFromHistory();
+                    if (isAutoGenerateMode && !isRunningTest) {
+                        regenerateScriptFromHistory();
+                    }
                 } catch (IllegalSimulationStateException e) {
                     handleSimulationException(e);
                 }
             } else {
                 logArea.append("Please open a State Machine Diagram.\n");
+                if (enableAutoGenerate) {
+                    logArea.append("Please open a State Machine Diagram.\n");
+                }
             }
         } catch (Exception e) {
             logArea.append("Error starting simulation: " + e.getMessage() + "\n");
@@ -449,15 +466,23 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         scriptHistory.clear();
         currentTargetDiagramName = null;
         initialStates.clear();
+        isAutoGenerateMode = false;
         logArea.setText("Simulation reset.\n");
     }
     
     private void regenerateScriptFromHistory() {
+        if (isRunningTest) return; // 自動実行中はエディタの同期をスキップ
+        if (!isAutoGenerateMode) return; // 自動生成モードでなければ同期しない
         if (currentTargetDiagramName == null) return;
         StringBuilder sb = new StringBuilder();
         sb.append("Target: ").append(currentTargetDiagramName).append("\n");
         sb.append("AssertState: ").append(String.join(", ", initialStates)).append("\n");
-        for (ScriptStep step : scriptHistory) {
+        
+        int currentIdx = engine.getCurrentSnapshotIndex();
+        int displayCount = Math.max(0, Math.min(currentIdx, scriptHistory.size()));
+        
+        for (int i = 0; i < displayCount; i++) {
+            ScriptStep step = scriptHistory.get(i);
             String evt = step.eventName != null ? step.eventName.trim() : "";
             sb.append("Fire: ").append(evt).append("\n");
             sb.append("AssertState: ").append(String.join(", ", step.states)).append("\n");
@@ -521,6 +546,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
             if (currentDiagram instanceof IStateMachineDiagram) {
                 String scriptText = testManager.getTestCaseScript(selectedTest, ((IStateMachineDiagram) currentDiagram).getStateMachine());
                 if (scriptText != null) {
+                    isAutoGenerateMode = false; // スクリプトを読み込んだら自動生成(上書き)モードをオフにする
                     testScriptArea.setText(scriptText);
                     logArea.append("Loaded test script: " + selectedTest + "\n");
                 }
@@ -531,25 +557,31 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     }
 
     private void onTimeTravel() {
-        refreshUI();
-        int currentIdx = engine.getCurrentSnapshotIndex();
-        if (currentIdx >= 0 && scriptHistory.size() > currentIdx) {
-            scriptHistory.subList(currentIdx, scriptHistory.size()).clear();
+        if (!isRunningTest) {
+            isAutoGenerateMode = true; // 手動でタイムトラベルしたら自動生成モードに復帰する
         }
-        regenerateScriptFromHistory();
+        refreshUI();
+        if (isAutoGenerateMode && !isRunningTest) {
+            regenerateScriptFromHistory();
+        }
     }
 
     private void recordStep(String eventName) {
+        // 常に内部履歴のトラッキングを行う
         int currentIdx = engine.getCurrentSnapshotIndex();
-        if (scriptHistory.size() >= currentIdx) return; // Prevent duplicate recording
+        
+        int targetHistorySize = currentIdx - 1;
+        if (targetHistorySize >= 0 && targetHistorySize < scriptHistory.size()) {
+            scriptHistory.subList(targetHistorySize, scriptHistory.size()).clear();
+        }
 
         List<String> currentStates = engine.getCurrentVertices().stream().map(IVertex::getName).collect(Collectors.toList());
         scriptHistory.add(new ScriptStep(eventName, currentStates));
 
-        StringBuilder sb = new StringBuilder();
-        sb.append("Fire: ").append(eventName != null ? eventName.trim() : "").append("\n");
-        sb.append("AssertState: ").append(String.join(", ", currentStates)).append("\n");
-        testScriptArea.append(sb.toString());
+        // 自動生成モードかつ自動実行中でない場合のみエディタを更新
+        if (isAutoGenerateMode && !isRunningTest) {
+            regenerateScriptFromHistory();
+        }
     }
 
     private void renameTest() {
@@ -562,7 +594,22 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
                 ProjectAccessor projectAccessor = AstahAPI.getAstahAPI().getProjectAccessor();
                 IDiagram currentDiagram = projectAccessor.getViewManager().getDiagramViewManager().getCurrentDiagram();
                 if (currentDiagram instanceof IStateMachineDiagram) {
-                    testManager.renameTestCase(selectedTest, newName, ((IStateMachineDiagram) currentDiagram).getStateMachine());
+                    IStateMachine sm = ((IStateMachineDiagram) currentDiagram).getStateMachine();
+                    
+                    List<String> existingTests = testManager.loadTestCaseNames(sm);
+                    if (existingTests.contains(newName)) {
+                        int confirm = JOptionPane.showConfirmDialog(this,
+                            "Test case '" + newName + "' already exists. Overwrite?",
+                            "Confirm Overwrite",
+                            JOptionPane.YES_NO_OPTION,
+                            JOptionPane.WARNING_MESSAGE);
+                        if (confirm != JOptionPane.YES_OPTION) return;
+                        
+                        // 上書きを許可された場合、既存の同名テストを先に削除する
+                        testManager.deleteTestCase(newName, sm);
+                    }
+                    
+                    testManager.renameTestCase(selectedTest, newName, sm);
                     logArea.append("Test case renamed: " + selectedTest + " -> " + newName + "\n");
                     updateTestCaseList((IStateMachineDiagram) currentDiagram);
                     testCaseCombo.setSelectedItem(newName);
@@ -598,6 +645,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     private void runTestScript() {
         String scriptText = testScriptArea.getText();
         testResultArea.setText("Running test script...\n");
+        isAutoGenerateMode = false; // 実行開始時に自動生成（上書き）はオフにする
         testStatusLabel.setText(" ⏳ Running...");
         testStatusLabel.setForeground(Color.BLACK);
 
@@ -610,22 +658,27 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
 
             // Run in a separate thread to avoid blocking the UI
             new Thread(() -> {
-                TestResult result = runner.run(script);
-                SwingUtilities.invokeLater(() -> {
-                    StringBuilder sb = new StringBuilder();
-                    if (result.success) {
-                        sb.append("✅✅✅ TEST PASSED ✅✅✅\n");
-                        testStatusLabel.setText(" ✅ PASSED");
-                        testStatusLabel.setForeground(new Color(0, 128, 0)); // Dark Green
-                    } else {
-                        sb.append("❌❌❌ TEST FAILED ❌❌❌\n");
-                        testStatusLabel.setText(" ❌ FAILED");
-                        testStatusLabel.setForeground(Color.RED);
-                    }
-                    sb.append("---------------------------\n");
-                    result.details.forEach(d -> sb.append(d).append("\n"));
-                    testResultArea.setText(sb.toString());
-                });
+                isRunningTest = true;
+                try {
+                    TestResult result = runner.run(script);
+                    SwingUtilities.invokeLater(() -> {
+                        StringBuilder sb = new StringBuilder();
+                        if (result.success) {
+                            sb.append("✅✅✅ TEST PASSED ✅✅✅\n");
+                            testStatusLabel.setText(" ✅ PASSED");
+                            testStatusLabel.setForeground(new Color(0, 128, 0)); // Dark Green
+                        } else {
+                            sb.append("❌❌❌ TEST FAILED ❌❌❌\n");
+                            testStatusLabel.setText(" ❌ FAILED");
+                            testStatusLabel.setForeground(Color.RED);
+                        }
+                        sb.append("---------------------------\n");
+                        result.details.forEach(d -> sb.append(d).append("\n"));
+                        testResultArea.setText(sb.toString());
+                    });
+                } finally {
+                    isRunningTest = false;
+                }
             }).start();
 
         } catch (ParseException e) {
@@ -661,6 +714,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
                         try {
                             pa.getViewManager().getDiagramViewManager().open(finalTargetDiagram);
                             startSimulation(); // Reset and start on the new diagram
+                            startSimulation(false); // テスト実行による開始時は自動生成オフ
                         } catch (Exception e) {
                             throw new RuntimeException(e);
                         }
@@ -735,11 +789,15 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     }
     
     private void updateTestCaseList(IStateMachineDiagram diagram) {
+        Object currentSelected = testCaseCombo.getSelectedItem();
         testCaseCombo.removeAllItems();
         if (diagram != null) {
             List<String> tests = testManager.loadTestCaseNames(diagram.getStateMachine());
             for (String test : tests) {
                 testCaseCombo.addItem(test);
+            }
+            if (currentSelected != null && tests.contains(currentSelected)) {
+                testCaseCombo.setSelectedItem(currentSelected);
             }
         }
     }
@@ -865,6 +923,10 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         try {
             SimulationEngine.StepResult result = engine.step(paths, null);
             if (result == null) return;
+
+            if (!isRunningTest) {
+                isAutoGenerateMode = true; // 手動でイベントを押したら自動生成モードに復帰する
+            }
 
             recordStep(label);
 

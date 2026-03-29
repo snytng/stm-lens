@@ -9,13 +9,14 @@ T38: テストケースコンボボックスのキャンセル操作時の誤作
 *   **所要時間**: -
 
 ## 実装方針・設計メモ
-*   **原因**: `JComboBox` の `ActionListener` は、ポップアップがキャンセル（外側をクリック等）された際にも発火してしまうため。
-*   **対策1 (ItemListener)**: `ActionListener` を廃止し、`ItemListener` で `ItemEvent.SELECTED` を検知した時のみロード処理を行うようにする。
-*   **対策2 (フラグ制御)**: `isUpdatingComboBox` フラグを導入し、`updateTestCaseList` によるリスト再構築時や、保存・リネーム後のプログラムからの `setSelectedItem` 時に、ロード処理が誤って連鎖発火するのを防ぐ。
+*   **目的**: コンボボックスの選択変更による自動ロードを廃止し、明示的な `[Load]` ボタンを追加することで、誤作動を完全に防ぐ。
+*   **UI変更**: `[Load]` ボタンをコンボボックスの右側に新設する。
+*   **動作仕様**: 
+    *   コンボボックスの `ActionListener` (自動ロード) を削除する。
+    *   新設した `[Load]` ボタンが押された時のみ、選択中のテストケースをエディタにロードする。
 
 ## TODOリスト
-- [ ] 1. 設計・仕様の合意（現在ここ）
-- [ ] 2. `StmAnalysisView.java` への `isUpdatingComboBox` フラグの追加。
-- [ ] 3. イベントリスナーの `ItemListener` への変更。
-- [ ] 4. プログラムからのコンボボックス操作箇所へのフラグ適用。
-- [ ] 5. 動作確認。
+- [x] 1. 設計・仕様の合意
+- [x] 2. ドキュメント (`specification.md`, `usage.md`, `design.md`) の更新。
+- [x] 3. `StmAnalysisView.java` の改修。
+- [ ] 4. 動作確認。
