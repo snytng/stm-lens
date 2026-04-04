@@ -17,7 +17,8 @@ function createModel() {
         // States
         var idle = diagramEditor.createState("Idle", null, new Point2D.Double(150, 100));
         var autoGen = diagramEditor.createState("AutoGenerateMode", null, new Point2D.Double(450, 50));
-        autoGen.getPresentation().setSize(400, 300);
+        autoGen.setWidth(400.0);
+        autoGen.setHeight(300.0);
 
         // Sub-states for AutoGenerateMode
         var recording = diagramEditor.createState("Recording", autoGen, new Point2D.Double(500, 100));

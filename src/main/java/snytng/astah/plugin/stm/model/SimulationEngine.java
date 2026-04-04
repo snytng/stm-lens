@@ -31,9 +31,18 @@ public class SimulationEngine {
     private List<SimulationSnapshot> historySnapshots = new ArrayList<>();
     private int currentSnapshotIndex = -1;
     
+    private boolean autoTimerEnabled = true;
     private final TimerManager timerManager = new TimerManager();
     private Consumer<StepResult> stepListener;
     private TimerListener timerListener;
+
+    public void setAutoTimerEnabled(boolean enabled) {
+        this.autoTimerEnabled = enabled;
+    }
+
+    public boolean isAutoTimerEnabled() {
+        return autoTimerEnabled;
+    }
 
     public interface TimerListener {
         void onTimerFired(List<TransitionPath> paths);
@@ -434,6 +443,27 @@ public class SimulationEngine {
         return currentVertices;
     }
 
+    /**
+     * 現在アクティブなすべての状態（リーフ状態およびその親状態）の名称を返します。
+     * @return アクティブな状態名のリスト
+     */
+    public List<String> getActiveHierarchyNames() {
+        // LinkedHashSet を使用して、追加順（リーフからルートに近い順）を維持し、重複を防ぐ
+        Set<String> names = new LinkedHashSet<>();
+        for (IVertex v : currentVertices) {
+            String name = v.getName();
+            if (name != null && !name.isEmpty()) names.add(name);
+
+            for (IElement ancestor : getAncestors(v)) {
+                if (ancestor instanceof INamedElement) {
+                    String ancestorName = ((INamedElement) ancestor).getName();
+                    if (ancestorName != null && !ancestorName.isEmpty()) names.add(ancestorName);
+                }
+            }
+        }
+        return new ArrayList<>(names);
+    }
+
     public List<IVertex> getPreviousVertices() {
         return previousVertices;
     }
@@ -550,6 +580,11 @@ public class SimulationEngine {
     }
 
     private void checkTimers() {
+        // 自動テスト実行中など、自動発火が抑制されている場合は何もしない
+        if (!autoTimerEnabled) {
+            return;
+        }
+
         List<TransitionPath> paths = getAvailableTransitions();
         long minDelay = -1;
         List<TransitionPath> minPaths = new ArrayList<>();

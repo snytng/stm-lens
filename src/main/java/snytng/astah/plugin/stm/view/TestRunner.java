@@ -58,9 +58,8 @@ public class TestRunner {
     
     private boolean isSameStates(List<String> expected, List<String> actual) {
         if (expected == null || actual == null) return false;
-        if (expected.size() != actual.size()) return false;
-        // 順不同で一致判定
-        return new HashSet<>(expected).equals(new HashSet<>(actual));
+        // 期待される状態（および明示的に指定された親状態）が、現在のアクティブな階層にすべて含まれているかを確認
+        return new HashSet<>(actual).containsAll(expected);
     }
 
     private boolean containsLog(List<String> actualLogs, String expectedLog) {

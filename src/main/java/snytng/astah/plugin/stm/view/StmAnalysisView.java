@@ -423,7 +423,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
                     
                     // 常に内部の履歴トラッキングは開始する（エディタに反映するかどうかはモード次第）
                     currentTargetDiagramName = currentDiagram.getName();
-                    initialStates = engine.getCurrentVertices().stream().map(IVertex::getName).collect(Collectors.toList());
+                    initialStates = engine.getActiveHierarchyNames();
                     scriptHistory.clear();
                     
                     logArea.setText("Simulation started.\n");
@@ -467,6 +467,12 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         currentTargetDiagramName = null;
         initialStates.clear();
         isAutoGenerateMode = false;
+
+        // テストUIの結果表示もクリア
+        testResultArea.setText("");
+        testStatusLabel.setText(" Ready");
+        testStatusLabel.setForeground(Color.BLACK);
+
         logArea.setText("Simulation reset.\n");
     }
     
@@ -575,7 +581,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
             scriptHistory.subList(targetHistorySize, scriptHistory.size()).clear();
         }
 
-        List<String> currentStates = engine.getCurrentVertices().stream().map(IVertex::getName).collect(Collectors.toList());
+        List<String> currentStates = engine.getActiveHierarchyNames();
         scriptHistory.add(new ScriptStep(eventName, currentStates));
 
         // 自動生成モードかつ自動実行中でない場合のみエディタを更新
@@ -649,6 +655,13 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         testStatusLabel.setText(" ⏳ Running...");
         testStatusLabel.setForeground(Color.BLACK);
 
+        // テスト実行のために元の Fast Mode 設定を保存し、強制的に ON にする
+        engine.setAutoTimerEnabled(false); // テスト中のタイマー自動遷移を無効化
+        final boolean originalFastMode = fastModeCheckbox.isSelected();
+        fastModeCheckbox.setSelected(true);
+        engine.setFastMode(true);
+        refreshUI();
+
         TestScriptParser parser = new TestScriptParser();
         try {
             TestScript script = parser.parse(scriptText);
@@ -678,10 +691,23 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
                     });
                 } finally {
                     isRunningTest = false;
+                    // 元の設定を復元する
+                    SwingUtilities.invokeLater(() -> {
+                        engine.setAutoTimerEnabled(true);
+                        fastModeCheckbox.setSelected(originalFastMode);
+                        engine.setFastMode(originalFastMode);
+                        refreshUI();
+                    });
                 }
             }).start();
 
         } catch (ParseException e) {
+            // パースエラー時も Fast Mode を復元
+            engine.setAutoTimerEnabled(true);
+            fastModeCheckbox.setSelected(originalFastMode);
+            engine.setFastMode(originalFastMode);
+            refreshUI();
+
             testResultArea.setText("❌ SCRIPT PARSE ERROR ❌\n" + e.getMessage());
             testStatusLabel.setText(" ❌ PARSE ERROR");
             testStatusLabel.setForeground(Color.RED);
@@ -749,7 +775,8 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
 
             @Override
             public List<String> getActiveStateNames() {
-                return engine.getCurrentVertices().stream().map(IVertex::getName).collect(Collectors.toList());
+                // リーフ状態だけでなく、階層（親状態）も含めて取得するように変更
+                return engine.getActiveHierarchyNames();
             }
 
             @Override
