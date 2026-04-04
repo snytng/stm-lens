@@ -150,23 +150,25 @@ stateDiagram-v2
       - エディタ: 履歴と自動同期（上書き）
     end note
 
-    AutoGenerateMode --> AutoGenerateMode : FireEvent() / TimeTravel()
+    AutoGenerateMode --> AutoGenerateMode : FireEvent()
+    AutoGenerateMode --> AutoGenerateMode : TimeTravel()
 
     ProtectedMode --> Idle : Reset()
     ProtectedMode --> ProtectedMode : Load()
+    ProtectedMode --> ProtectedMode : TimeTravel()
     ProtectedMode --> TestRunningMode : RunScript()
 
     note left of ProtectedMode
-      【テスト保護・デバッグ】
+      【テスト保護・閲覧モード】
       - 内部履歴: トラッキングON
-      - エディタ: 変更保護（同期OFF）
+      - エディタ: 変更保護（同期OFF・閲覧のみ）
     end note
 
     %% 派生テスト作成のUX（手動操作を検知し、エディタを再構築）
-    ProtectedMode --> AutoGenerateMode : FireEvent() / TimeTravel()\n[エディタを再構築]
+    ProtectedMode --> AutoGenerateMode : FireEvent() / エディタを再構築
 
     TestRunningMode --> ProtectedMode : RunComplete()
-    TestRunningMode --> Idle : Reset() [強制キャンセル]
+    TestRunningMode --> Idle : Reset() [Running]
 
     note right of TestRunningMode
       【自動テスト実行】

@@ -31,20 +31,24 @@ function createModel() {
         diagramEditor.createTransition(autoGen, idle).setLabel("Reset()");
         diagramEditor.createTransition(autoGen, protected).setLabel("Load()");
         diagramEditor.createTransition(autoGen, running).setLabel("RunScript()");
-        diagramEditor.createTransition(autoGen, autoGen).setLabel("FireEvent() / TimeTravel()");
+        diagramEditor.createTransition(autoGen, autoGen).setLabel("FireEvent()");
+        diagramEditor.createTransition(autoGen, autoGen).setLabel("TimeTravel()");
 
         // From ProtectedMode
         diagramEditor.createTransition(protected, idle).setLabel("Reset()");
         diagramEditor.createTransition(protected, protected).setLabel("Load()");
+        diagramEditor.createTransition(protected, protected).setLabel("TimeTravel()");
         diagramEditor.createTransition(protected, running).setLabel("RunScript()");
+
         // The core logic of deriving tests:
+        // Branching from Protected to AutoGenerate
         var t_derive = diagramEditor.createTransition(protected, autoGen);
-        t_derive.setLabel("FireEvent() / TimeTravel()");
-        t_derive.getModel().setAction("エディタを再構築");
+        t_derive.setLabel("FireEvent() / エディタを再構築");
+        // Note: astah* parses the above label and automatically sets the Action property of the model.
 
         // From TestRunningMode
         diagramEditor.createTransition(running, protected).setLabel("RunComplete()");
-        diagramEditor.createTransition(running, idle).setLabel("Reset() [強制]");
+        diagramEditor.createTransition(running, idle).setLabel("Reset() [Running]");
 
         transactionManager.endTransaction();
         print("TestModel_No40 (Meta-Model) created successfully.");

@@ -24,7 +24,11 @@ Fire: RunComplete()
 AssertState: ProtectedMode
 
 // --- Case C: 派生テストの作成 (UXのキモ) ---
-// Protected状態からでも、図をいじったり過去に戻れば AutoGenerateMode に戻る
+// Protected状態（閲覧モード）でのタイムトラベルは、履歴を壊さない（状態を維持）
+Fire: TimeTravel()
+AssertState: ProtectedMode
+
+// イベントを発火した瞬間に、その時点までの履歴でエディタを再構築して AutoGenerateMode へ
 Fire: FireEvent()
 AssertLog: エディタを再構築
 AssertState: AutoGenerateMode
