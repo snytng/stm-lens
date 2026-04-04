@@ -34,5 +34,6 @@ B21: ドッグフーディングによる自作ツールの設計検証
 - [x] 検証用モデル生成スクリプトの修正と実行 (`create_test_model_no40.js`)
 - [ ] 生成された図（StmLens_UI_Modes_Diagram）をastah*上で見やすく整える
 - [x] テストスクリプト (`c:\tools\astah-plugins\stm\test\verification_scenario_no40.txt`) の作成と修正
+- [x] 設計の精緻化（AutoGenerateModeの複合状態化とSaveイベント追加）
 - [ ] 修正したメタ・モデルによる再検証と動作確認
 - [x] シミュレーション実行と KPT (B21の結果) の記録

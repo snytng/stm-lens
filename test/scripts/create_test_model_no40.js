@@ -16,12 +16,20 @@ function createModel() {
 
         // States
         var idle = diagramEditor.createState("Idle", null, new Point2D.Double(150, 100));
-        var autoGen = diagramEditor.createState("AutoGenerateMode", null, new Point2D.Double(400, 100));
+        var autoGen = diagramEditor.createState("AutoGenerateMode", null, new Point2D.Double(450, 50));
+        autoGen.getPresentation().setSize(400, 300);
+
+        // Sub-states for AutoGenerateMode
+        var recording = diagramEditor.createState("Recording", autoGen, new Point2D.Double(500, 100));
+        var browsing = diagramEditor.createState("Browsing", autoGen, new Point2D.Double(700, 100));
+        var autoGenInitial = diagramEditor.createInitialPseudostate(autoGen, new Point2D.Double(470, 120));
+
         var protected = diagramEditor.createState("ProtectedMode", null, new Point2D.Double(150, 250));
-        var running = diagramEditor.createState("TestRunningMode", null, new Point2D.Double(400, 250));
+        var running = diagramEditor.createState("TestRunningMode", null, new Point2D.Double(450, 400));
 
         // Transitions
         diagramEditor.createTransition(initial, idle);
+        diagramEditor.createTransition(autoGenInitial, recording);
         
         // From Idle
         diagramEditor.createTransition(idle, autoGen).setLabel("Start() [手動]");
@@ -31,19 +39,26 @@ function createModel() {
         diagramEditor.createTransition(autoGen, idle).setLabel("Reset()");
         diagramEditor.createTransition(autoGen, protected).setLabel("Load()");
         diagramEditor.createTransition(autoGen, running).setLabel("RunScript()");
-        diagramEditor.createTransition(autoGen, autoGen).setLabel("FireEvent()");
-        diagramEditor.createTransition(autoGen, autoGen).setLabel("TimeTravel()");
+
+        // Transitions within AutoGenerateMode
+        diagramEditor.createTransition(recording, recording).setLabel("FireEvent() / 履歴に追記");
+        diagramEditor.createTransition(recording, recording).setLabel("Save()");
+        diagramEditor.createTransition(recording, browsing).setLabel("TimeTravel()");
+        diagramEditor.createTransition(browsing, browsing).setLabel("TimeTravel()");
+        diagramEditor.createTransition(browsing, browsing).setLabel("Save()");
+        diagramEditor.createTransition(browsing, recording).setLabel("FireEvent() / 履歴を分岐・上書き");
 
         // From ProtectedMode
         diagramEditor.createTransition(protected, idle).setLabel("Reset()");
         diagramEditor.createTransition(protected, protected).setLabel("Load()");
         diagramEditor.createTransition(protected, protected).setLabel("TimeTravel()");
+        diagramEditor.createTransition(protected, protected).setLabel("Save()");
         diagramEditor.createTransition(protected, running).setLabel("RunScript()");
 
         // The core logic of deriving tests:
-        // Branching from Protected to AutoGenerate
+        // Branching from Protected to AutoGenerate (specifically to Recording)
         var t_derive = diagramEditor.createTransition(protected, autoGen);
-        t_derive.setLabel("FireEvent() / エディタを再構築");
+        t_derive.setLabel("FireEvent() / 履歴を分岐・上書き");
         // Note: astah* parses the above label and automatically sets the Action property of the model.
 
         // From TestRunningMode
