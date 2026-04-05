@@ -1,2 +1,4 @@
 target/*
 memo.md
+*.asta.lock
+**/*.asta.lock

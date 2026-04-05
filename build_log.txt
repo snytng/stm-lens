@@ -23,37 +23,15 @@
 [INFO] 
 [INFO] --- compiler:3.8.1:compile (default-compile) @ stm ---
 [INFO] Changes detected - recompiling the module!
-[INFO] Compiling 7 source files to C:\tools\astah-plugins\stm\target\classes
-[INFO] -------------------------------------------------------------
-[ERROR] COMPILATION ERROR : 
-[INFO] -------------------------------------------------------------
-[ERROR] /C:/tools/astah-plugins/stm/src/main/java/snytng/astah/plugin/stm/model/SimulationEngine.java:[328,9] クラス snytng.astah.plugin.stm.model.SimulationEngineのメソッド completeOrthogonalRegionsは指定された型に適用できません。
-  期待値: java.util.List<com.change_vision.jude.api.inf.model.IVertex>,com.change_vision.jude.api.inf.model.IElement,java.util.List<java.lang.String>
-  検出値:    java.util.List<com.change_vision.jude.api.inf.model.IVertex>,com.change_vision.jude.api.inf.model.IElement,java.util.List<java.lang.String>,java.util.Set<com.change_vision.jude.api.inf.model.IVertex>
-  理由: 実引数リストと仮引数リストの長さが異なります
-[ERROR] /C:/tools/astah-plugins/stm/src/main/java/snytng/astah/plugin/stm/model/SimulationEngine.java:[612,81] シンボルを見つけられません
-  シンボル:   変数 visited
-  場所: クラス snytng.astah.plugin.stm.model.SimulationEngine
-[INFO] 2 errors 
-[INFO] -------------------------------------------------------------
+[INFO] Compiling 13 source files to C:\tools\astah-plugins\stm\target\classes
+[INFO] 
+[INFO] --- bundle:5.1.4:bundle (build-manifest) @ stm ---
+[WARNING] Bundle stm:stm:bundle:0.1 : Unused Private-Package instructions, no such package(s) on the class path: [snytng.astah.plugin.stm.internal.*]
+[INFO] Building bundle: C:\tools\astah-plugins\stm\target\stm-0.1.jar
+[INFO] Writing manifest: C:\tools\astah-plugins\stm\target\classes\META-INF\MANIFEST.MF
 [INFO] ------------------------------------------------------------------------
-[INFO] BUILD FAILURE
+[INFO] BUILD SUCCESS
 [INFO] ------------------------------------------------------------------------
-[INFO] Total time:  7.130 s
-[INFO] Finished at: 2026-03-15T02:36:54+09:00
+[INFO] Total time:  11.352 s
+[INFO] Finished at: 2026-04-05T11:25:17+09:00
 [INFO] ------------------------------------------------------------------------
-[ERROR] Failed to execute goal org.apache.maven.plugins:maven-compiler-plugin:3.8.1:compile (default-compile) on project stm: Compilation failure: Compilation failure: 
-[ERROR] /C:/tools/astah-plugins/stm/src/main/java/snytng/astah/plugin/stm/model/SimulationEngine.java:[328,9] クラス snytng.astah.plugin.stm.model.SimulationEngineのメソッド completeOrthogonalRegionsは指定された型に適用できません。
-[ERROR]   期待値: java.util.List<com.change_vision.jude.api.inf.model.IVertex>,com.change_vision.jude.api.inf.model.IElement,java.util.List<java.lang.String>
-[ERROR]   検出値:    java.util.List<com.change_vision.jude.api.inf.model.IVertex>,com.change_vision.jude.api.inf.model.IElement,java.util.List<java.lang.String>,java.util.Set<com.change_vision.jude.api.inf.model.IVertex>
-[ERROR]   理由: 実引数リストと仮引数リストの長さが異なります
-[ERROR] /C:/tools/astah-plugins/stm/src/main/java/snytng/astah/plugin/stm/model/SimulationEngine.java:[612,81] シンボルを見つけられません
-[ERROR]   シンボル:   変数 visited
-[ERROR]   場所: クラス snytng.astah.plugin.stm.model.SimulationEngine
-[ERROR] -> [Help 1]
-[ERROR] 
-[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.
-[ERROR] Re-run Maven using the -X switch to enable full debug logging.
-[ERROR] 
-[ERROR] For more information about the errors and possible solutions, please read the following articles:
-[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoFailureException
