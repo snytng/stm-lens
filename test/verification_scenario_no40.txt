@@ -4,15 +4,15 @@ Target: StmLens_UI_Modes_Diagram
 // --- Case A: 手動操作によるテスト作成フロー ---
 AssertState: Idle
 Fire: Start() [手動]
-AssertState: AutoGenerateMode, Recording
+AssertState: AutoGenerateMode/Recording
 
 // 試行錯誤（履歴が蓄積される想定）
 Fire: FireEvent()
 AssertLog: 履歴に追記
-AssertState: AutoGenerateMode, Recording
+AssertState: AutoGenerateMode/Recording
 
 Fire: TimeTravel()
-AssertState: AutoGenerateMode, Browsing
+AssertState: AutoGenerateMode/Browsing
 
 Fire: Reset()
 AssertState: Idle
@@ -38,7 +38,7 @@ AssertState: ProtectedMode
 // イベントを発火した瞬間に、その時点までの履歴でエディタを再構築して AutoGenerateMode へ
 Fire: FireEvent()
 AssertLog: 履歴を分岐・上書き
-AssertState: AutoGenerateMode, Recording
+AssertState: AutoGenerateMode/Recording
 
 Fire: Reset()
 AssertState: Idle

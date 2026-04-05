@@ -423,7 +423,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
                     
                     // 常に内部の履歴トラッキングは開始する（エディタに反映するかどうかはモード次第）
                     currentTargetDiagramName = currentDiagram.getName();
-                    initialStates = engine.getActiveHierarchyNames();
+                    initialStates = engine.getActiveFullPaths();
                     scriptHistory.clear();
                     
                     logArea.setText("Simulation started.\n");
@@ -581,7 +581,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
             scriptHistory.subList(targetHistorySize, scriptHistory.size()).clear();
         }
 
-        List<String> currentStates = engine.getActiveHierarchyNames();
+        List<String> currentStates = engine.getActiveFullPaths();
         scriptHistory.add(new ScriptStep(eventName, currentStates));
 
         // 自動生成モードかつ自動実行中でない場合のみエディタを更新
@@ -776,7 +776,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
             @Override
             public List<String> getActiveStateNames() {
                 // リーフ状態だけでなく、階層（親状態）も含めて取得するように変更
-                return engine.getActiveHierarchyNames();
+                return engine.getActiveFullPaths();
             }
 
             @Override

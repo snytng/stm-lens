@@ -448,20 +448,34 @@ public class SimulationEngine {
      * @return アクティブな状態名のリスト
      */
     public List<String> getActiveHierarchyNames() {
-        // LinkedHashSet を使用して、追加順（リーフからルートに近い順）を維持し、重複を防ぐ
-        Set<String> names = new LinkedHashSet<>();
+        // 厳密性のため、フルパス（階層構造）のみを返すように変更
+        return getActiveFullPaths();
+    }
+
+    /**
+     * 現在アクティブな各リーフ状態のフルパス名のリストを返します。
+     * 自動生成されるテストスクリプトの曖昧さを排除するために使用します。
+     * @return フルパス名のリスト
+     */
+    public List<String> getActiveFullPaths() {
+        List<String> paths = new ArrayList<>();
         for (IVertex v : currentVertices) {
-            String name = v.getName();
-            if (name != null && !name.isEmpty()) names.add(name);
+            List<String> hierarchy = new ArrayList<>();
+            String leafName = v.getName();
+            hierarchy.add(leafName != null ? leafName : "");
 
             for (IElement ancestor : getAncestors(v)) {
                 if (ancestor instanceof INamedElement) {
-                    String ancestorName = ((INamedElement) ancestor).getName();
-                    if (ancestorName != null && !ancestorName.isEmpty()) names.add(ancestorName);
+                    String aName = ((INamedElement) ancestor).getName();
+                    if (aName != null && !aName.isEmpty()) {
+                        hierarchy.add(aName);
+                    }
                 }
             }
+            Collections.reverse(hierarchy);
+            paths.add(String.join("/", hierarchy));
         }
-        return new ArrayList<>(names);
+        return paths;
     }
 
     public List<IVertex> getPreviousVertices() {
@@ -721,9 +735,27 @@ public class SimulationEngine {
     private List<IElement> getAncestors(IVertex v) {
         List<IElement> ancestors = new ArrayList<>();
         IElement current = v.getContainer();
+        IVertex lastVertex = v;
+
         while (current != null) {
+            // 親が状態（並行状態）の場合、論理的に属しているRegionを特定して階層に挿入する
+            if (current instanceof IState) {
+                IState s = (IState) current;
+                if (isOrthogonalState(s)) {
+                    try {
+                        for (IState region : s.getStateRegions()) {
+                            // 直系の子（lastVertex）がどの領域に属しているかを判定
+                            if (isVertexInSubvertexes(lastVertex, region) && !isSameElement(region, s)) {
+                                ancestors.add(region);
+                                break;
+                            }
+                        }
+                    } catch (Exception e) { /* ignore */ }
+                }
+            }
             ancestors.add(current);
             if (current instanceof IStateMachine) break;
+            if (current instanceof IVertex) lastVertex = (IVertex) current;
             current = current.getContainer();
         }
         return ancestors;
