@@ -460,22 +460,32 @@ public class SimulationEngine {
     public List<String> getActiveFullPaths() {
         List<String> paths = new ArrayList<>();
         for (IVertex v : currentVertices) {
-            List<String> hierarchy = new ArrayList<>();
-            String leafName = v.getName();
-            hierarchy.add(leafName != null ? leafName : "");
-
-            for (IElement ancestor : getAncestors(v)) {
-                if (ancestor instanceof INamedElement) {
-                    String aName = ((INamedElement) ancestor).getName();
-                    if (aName != null && !aName.isEmpty()) {
-                        hierarchy.add(aName);
-                    }
-                }
-            }
-            Collections.reverse(hierarchy);
-            paths.add(String.join("/", hierarchy));
+            paths.add(getFullPath(v));
         }
         return paths;
+    }
+
+    /**
+     * 指定されたIVertexのルートからのフルパス文字列を返します。
+     * @param vertex フルパスを取得したいIVertex
+     * @return フルパス文字列（例: "Root/Parent/Child"）
+     */
+    public String getFullPath(IVertex vertex) {
+        if (vertex == null) return "";
+        List<String> hierarchy = new ArrayList<>();
+        String leafName = vertex.getName();
+        hierarchy.add(leafName != null ? leafName : "");
+
+        for (IElement ancestor : getAncestors(vertex)) {
+            if (ancestor instanceof INamedElement) {
+                String aName = ((INamedElement) ancestor).getName();
+                if (aName != null && !aName.isEmpty()) {
+                    hierarchy.add(aName);
+                }
+            }
+        }
+        Collections.reverse(hierarchy);
+        return String.join("/", hierarchy);
     }
 
     public List<IVertex> getPreviousVertices() {
@@ -1163,8 +1173,12 @@ public class SimulationEngine {
         
         // 1. Current Status
         sb.append("\n[Current Vertices]\n");
-        for (IVertex v : currentVertices) {
-            sb.append(" - ").append(v.getName()).append(" (").append(v.getClass().getSimpleName()).append(")\n");
+        if (currentVertices.isEmpty()) {
+            sb.append(" (None)\n");
+        } else {
+            for (IVertex v : currentVertices) {
+                sb.append(" - ").append(getFullPath(v)).append(" (").append(v.getClass().getSimpleName()).append(")\n");
+            }
         }
         
         // 2. History Map
@@ -1173,8 +1187,8 @@ public class SimulationEngine {
             sb.append(" (Empty)\n");
         } else {
             for (Map.Entry<IState, IVertex> entry : historyMap.entrySet()) {
-                sb.append(" - State: ").append(entry.getKey().getName())
-                  .append(" -> Last Active: ").append(entry.getValue().getName()).append("\n");
+                sb.append(" - State: ").append(getFullPath(entry.getKey()))
+                  .append(" -> Last Active: ").append(getFullPath(entry.getValue())).append("\n");
             }
         }
 
@@ -1197,7 +1211,7 @@ public class SimulationEngine {
                 String event = root.getEvent() != null ? root.getEvent() : "null";
                 String guard = root.getGuard() != null ? root.getGuard() : "null";
                 String action = root.getAction() != null ? root.getAction() : "null";
-                String targetName = path.getTarget() != null ? path.getTarget().getName() : "Internal(null)";
+                String targetName = path.getTarget() != null ? getFullPath(path.getTarget()) : "Internal(null)";
                 sb.append(" - Event: '").append(event).append("' [Guard: '").append(guard).append("'] / Action: '").append(action).append("' -> Target: ").append(targetName).append("\n");
             }
         }
