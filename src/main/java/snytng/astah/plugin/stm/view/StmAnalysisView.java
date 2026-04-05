@@ -850,7 +850,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         if (currents != null && !currents.isEmpty()) {
             StringBuilder sb = new StringBuilder("Current State: ");
             for (int i = 0; i < currents.size(); i++) {
-                sb.append(currents.get(i).getName());
+                sb.append(engine.getFullPath(currents.get(i)));
                 if (i < currents.size() - 1) sb.append(", ");
             }
             stateLabel.setText(sb.toString());
@@ -1024,11 +1024,13 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
                 logArea.append(String.format("Transition: %s -> %s\n",
                         sourceName, targetName));
             }
+            logArea.append("Active States: " + String.join(", ", engine.getActiveFullPaths()) + "\n");
         } else {
             String sourceName = result.source != null ? result.source.getName() : "Unknown";
             String targetName = result.target != null ? result.target.getName() : "Internal";
             logArea.append(String.format("Transition: %s -> %s\n",
                     sourceName, targetName));
+            logArea.append("Active States: " + String.join(", ", engine.getActiveFullPaths()) + "\n");
         }
     }
 
