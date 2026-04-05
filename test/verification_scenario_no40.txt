@@ -1,0 +1,44 @@
+// B21: Stm Lens メタ・モデル検証シナリオ
+Target: StmLens_UI_Modes_Diagram
+
+// --- Case A: 手動操作によるテスト作成フロー ---
+AssertState: Idle
+Fire: Start() [手動]
+AssertState: AutoGenerateMode/Recording
+
+// 試行錯誤（履歴が蓄積される想定）
+Fire: FireEvent()
+AssertLog: 履歴に追記
+AssertState: AutoGenerateMode/Recording
+
+Fire: TimeTravel()
+AssertState: AutoGenerateMode/Browsing
+
+Fire: Reset()
+AssertState: Idle
+
+// --- Case B: 保存済みテストのデバッグと実行 ---
+Fire: Load()
+AssertState: ProtectedMode
+
+Fire: RunScript()
+AssertState: TestRunningMode
+
+Fire: RunComplete()
+AssertState: ProtectedMode
+
+// --- Case C: 派生テストの作成 (UXのキモ) ---
+// Protected状態（閲覧モード）でのタイムトラベルは、履歴を壊さない（状態を維持）
+Fire: TimeTravel()
+AssertState: ProtectedMode
+
+Fire: Save()
+AssertState: ProtectedMode
+
+// イベントを発火した瞬間に、その時点までの履歴でエディタを再構築して AutoGenerateMode へ
+Fire: FireEvent()
+AssertLog: 履歴を分岐・上書き
+AssertState: AutoGenerateMode/Recording
+
+Fire: Reset()
+AssertState: Idle

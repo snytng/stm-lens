@@ -31,9 +31,18 @@ public class SimulationEngine {
     private List<SimulationSnapshot> historySnapshots = new ArrayList<>();
     private int currentSnapshotIndex = -1;
     
+    private boolean autoTimerEnabled = true;
     private final TimerManager timerManager = new TimerManager();
     private Consumer<StepResult> stepListener;
     private TimerListener timerListener;
+
+    public void setAutoTimerEnabled(boolean enabled) {
+        this.autoTimerEnabled = enabled;
+    }
+
+    public boolean isAutoTimerEnabled() {
+        return autoTimerEnabled;
+    }
 
     public interface TimerListener {
         void onTimerFired(List<TransitionPath> paths);
@@ -434,6 +443,41 @@ public class SimulationEngine {
         return currentVertices;
     }
 
+    /**
+     * 現在アクティブなすべての状態（リーフ状態およびその親状態）の名称を返します。
+     * @return アクティブな状態名のリスト
+     */
+    public List<String> getActiveHierarchyNames() {
+        // 厳密性のため、フルパス（階層構造）のみを返すように変更
+        return getActiveFullPaths();
+    }
+
+    /**
+     * 現在アクティブな各リーフ状態のフルパス名のリストを返します。
+     * 自動生成されるテストスクリプトの曖昧さを排除するために使用します。
+     * @return フルパス名のリスト
+     */
+    public List<String> getActiveFullPaths() {
+        List<String> paths = new ArrayList<>();
+        for (IVertex v : currentVertices) {
+            List<String> hierarchy = new ArrayList<>();
+            String leafName = v.getName();
+            hierarchy.add(leafName != null ? leafName : "");
+
+            for (IElement ancestor : getAncestors(v)) {
+                if (ancestor instanceof INamedElement) {
+                    String aName = ((INamedElement) ancestor).getName();
+                    if (aName != null && !aName.isEmpty()) {
+                        hierarchy.add(aName);
+                    }
+                }
+            }
+            Collections.reverse(hierarchy);
+            paths.add(String.join("/", hierarchy));
+        }
+        return paths;
+    }
+
     public List<IVertex> getPreviousVertices() {
         return previousVertices;
     }
@@ -550,6 +594,11 @@ public class SimulationEngine {
     }
 
     private void checkTimers() {
+        // 自動テスト実行中など、自動発火が抑制されている場合は何もしない
+        if (!autoTimerEnabled) {
+            return;
+        }
+
         List<TransitionPath> paths = getAvailableTransitions();
         long minDelay = -1;
         List<TransitionPath> minPaths = new ArrayList<>();
@@ -686,9 +735,27 @@ public class SimulationEngine {
     private List<IElement> getAncestors(IVertex v) {
         List<IElement> ancestors = new ArrayList<>();
         IElement current = v.getContainer();
+        IVertex lastVertex = v;
+
         while (current != null) {
+            // 親が状態（並行状態）の場合、論理的に属しているRegionを特定して階層に挿入する
+            if (current instanceof IState) {
+                IState s = (IState) current;
+                if (isOrthogonalState(s)) {
+                    try {
+                        for (IState region : s.getStateRegions()) {
+                            // 直系の子（lastVertex）がどの領域に属しているかを判定
+                            if (isVertexInSubvertexes(lastVertex, region) && !isSameElement(region, s)) {
+                                ancestors.add(region);
+                                break;
+                            }
+                        }
+                    } catch (Exception e) { /* ignore */ }
+                }
+            }
             ancestors.add(current);
             if (current instanceof IStateMachine) break;
+            if (current instanceof IVertex) lastVertex = (IVertex) current;
             current = current.getContainer();
         }
         return ancestors;

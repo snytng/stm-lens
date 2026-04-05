@@ -140,33 +140,48 @@ stateDiagram-v2
     Idle --> AutoGenerateMode : Start() [手動]
     Idle --> ProtectedMode : Load()
 
+    state AutoGenerateMode {
+        [*] --> Recording
+        Recording --> Recording : FireEvent() / 履歴に追記
+        Recording --> Browsing : TimeTravel()
+        Browsing --> Browsing : TimeTravel()
+        Browsing --> Recording : FireEvent() / 履歴を分岐・上書き
+        
+        Recording --> Recording : Save()
+        Browsing --> Browsing : Save()
+
+        note right of Recording
+          【追記モード】
+          - 最新の状態にイベントを足している
+        end note
+        note right of Browsing
+          【閲覧モード】
+          - 過去に戻って確認中
+          - ここでイベントを打つと「未来」が書き換わる
+        end note
+    }
+
     AutoGenerateMode --> Idle : Reset()
     AutoGenerateMode --> ProtectedMode : Load()
     AutoGenerateMode --> TestRunningMode : RunScript()
-    
-    note right of AutoGenerateMode
-      【手動操作・テスト作成】
-      - 内部履歴: トラッキングON
-      - エディタ: 履歴と自動同期（上書き）
-    end note
-
-    AutoGenerateMode --> AutoGenerateMode : FireEvent() / TimeTravel()
 
     ProtectedMode --> Idle : Reset()
     ProtectedMode --> ProtectedMode : Load()
+    ProtectedMode --> ProtectedMode : TimeTravel()
     ProtectedMode --> TestRunningMode : RunScript()
+    ProtectedMode --> ProtectedMode : Save()
 
     note left of ProtectedMode
-      【テスト保護・デバッグ】
+      【テスト保護・閲覧モード】
       - 内部履歴: トラッキングON
-      - エディタ: 変更保護（同期OFF）
+      - エディタ: 変更保護（同期OFF・閲覧のみ）
     end note
 
     %% 派生テスト作成のUX（手動操作を検知し、エディタを再構築）
-    ProtectedMode --> AutoGenerateMode : FireEvent() / TimeTravel()\n[エディタを再構築]
+    ProtectedMode --> AutoGenerateMode : FireEvent() / エディタを再構築
 
     TestRunningMode --> ProtectedMode : RunComplete()
-    TestRunningMode --> Idle : Reset() [強制キャンセル]
+    TestRunningMode --> Idle : Reset() [Running]
 
     note right of TestRunningMode
       【自動テスト実行】
