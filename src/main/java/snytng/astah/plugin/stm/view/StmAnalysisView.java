@@ -22,6 +22,7 @@ import snytng.astah.plugin.stm.model.TestManager;
 import snytng.astah.plugin.stm.model.TimerManager;
 import snytng.astah.plugin.stm.model.IllegalSimulationStateException;
 import snytng.astah.plugin.stm.model.test.ParseException;
+import snytng.astah.plugin.stm.ui.UiMode;
 import snytng.astah.plugin.stm.model.test.TestResult;
 import snytng.astah.plugin.stm.model.test.TestRunner;
 import snytng.astah.plugin.stm.model.test.TestRunnerContext;
@@ -41,6 +42,7 @@ import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.JToggleButton;
 import javax.swing.JSplitPane;
+import javax.swing.JFileChooser;
 import javax.swing.SwingUtilities;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -48,7 +50,10 @@ import java.awt.Component;
 import java.awt.FlowLayout;
 import java.awt.Toolkit;
 import java.awt.datatransfer.Clipboard;
+import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
+import java.io.File;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -89,6 +94,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     private JButton nextNavButton;
     private JButton endNavButton;
     private JLabel stepLabel;
+    private JLabel modeLabel;
     
     private JTextArea logArea;
 
@@ -98,7 +104,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     private final Set<String> firedTimers = new HashSet<>();
     
     private volatile boolean isRunningTest = false; // 自動テスト実行中フラグ
-    private boolean isAutoGenerateMode = false; // スクリプト自動同期モードフラグ
+    private UiMode currentUiMode = UiMode.VIEWING; // UI状態 (設計に基づきデフォルトは閲覧/保護)
     
     // Script Generation History
     private String currentTargetDiagramName;
@@ -205,6 +211,19 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         });
     }
 
+    private void setUiMode(UiMode mode) {
+        this.currentUiMode = mode;
+        testScriptArea.setEditable(mode.editable);
+        testScriptArea.setBackground(mode.backgroundColor);
+
+        // モードラベルの表示更新 (testStatusLabel から分離)
+        if (mode == UiMode.VIEWING) {
+            modeLabel.setText(" 🔒 VIEWING");
+        } else {
+            modeLabel.setText(" 🔴 LIVE");
+        }
+    }
+
     private void initComponents() {
         setLayout(new BorderLayout());
 
@@ -235,6 +254,8 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         showActionsCheckbox = new JCheckBox("Show Actions", true);
         fastModeCheckbox = new JCheckBox("Fast Mode", false);
         testToggleBtn = new JToggleButton("▼ Test Tools");
+        modeLabel = new JLabel(" 🔒 VIEWING");
+        modeLabel.setFont(modeLabel.getFont().deriveFont(java.awt.Font.BOLD));
 
         startButton.addActionListener(e -> startSimulation());
         resetButton.addActionListener(e -> resetSimulation());
@@ -249,6 +270,8 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         controlLine.add(stepLabel);
         controlLine.add(nextNavButton);
         controlLine.add(endNavButton);
+        controlLine.add(Box.createHorizontalStrut(5));
+        controlLine.add(modeLabel);
         controlLine.add(Box.createHorizontalStrut(5));
         controlLine.add(stateLabel);
         controlLine.add(Box.createHorizontalStrut(5));
@@ -289,6 +312,14 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         runTestScriptButton = new JButton("▶ Run Script");
         runTestScriptButton.addActionListener(e -> runTestScript());
         
+        JButton openFileButton = new JButton("📂");
+        openFileButton.setToolTipText("Load script from file");
+        openFileButton.addActionListener(e -> openScriptFile());
+
+        JButton pasteButton = new JButton("📋");
+        pasteButton.setToolTipText("Paste script from clipboard");
+        pasteButton.addActionListener(e -> pasteScript());
+
         JButton clearScriptButton = new JButton("🗑");
         clearScriptButton.setToolTipText("Clear Script");
         clearScriptButton.addActionListener(e -> testScriptArea.setText(""));
@@ -297,6 +328,8 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         testStatusLabel.setFont(testStatusLabel.getFont().deriveFont(java.awt.Font.BOLD));
         
         scriptControlBar.add(runTestScriptButton);
+        scriptControlBar.add(openFileButton);
+        scriptControlBar.add(pasteButton);
         scriptControlBar.add(clearScriptButton);
         scriptControlBar.add(testStatusLabel);
 
@@ -374,6 +407,9 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
                 }
             }
         });
+
+        // 初期状態のUIモード設定
+        setUiMode(UiMode.VIEWING);
     }
 
     private boolean clearScriptIfConfirmed(String actionName) {
@@ -418,8 +454,12 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
                 firedTimers.clear();
                 try {
                     SimulationEngine.StepResult result = engine.start((IStateMachineDiagram) currentDiagram);
-                    
-                    isAutoGenerateMode = enableAutoGenerate;
+
+                    if (enableAutoGenerate) {
+                        setUiMode(UiMode.LIVE);
+                    } else {
+                        setUiMode(UiMode.VIEWING);
+                    }
                     
                     // 常に内部の履歴トラッキングは開始する（エディタに反映するかどうかはモード次第）
                     currentTargetDiagramName = currentDiagram.getName();
@@ -430,7 +470,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
                     printStepResult(result);
                     refreshUI();
                     updateTestCaseList((IStateMachineDiagram) currentDiagram);
-                    if (isAutoGenerateMode && !isRunningTest) {
+                    if (currentUiMode == UiMode.LIVE && !isRunningTest) {
                         regenerateScriptFromHistory();
                     }
                 } catch (IllegalSimulationStateException e) {
@@ -459,14 +499,10 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
 
         firedTimers.clear();
         engine.start(null);
-        stateLabel.setText("Current State: -");
-        eventPanel.removeAll();
-        eventPanel.revalidate();
-        eventPanel.repaint();
         scriptHistory.clear();
         currentTargetDiagramName = null;
         initialStates.clear();
-        isAutoGenerateMode = false;
+        setUiMode(UiMode.VIEWING);
 
         // テストUIの結果表示もクリア
         testResultArea.setText("");
@@ -474,11 +510,11 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         testStatusLabel.setForeground(Color.BLACK);
 
         logArea.setText("Simulation reset.\n");
+        refreshUI();
     }
     
     private void regenerateScriptFromHistory() {
         if (isRunningTest) return; // 自動実行中はエディタの同期をスキップ
-        if (!isAutoGenerateMode) return; // 自動生成モードでなければ同期しない
         if (currentTargetDiagramName == null) return;
         StringBuilder sb = new StringBuilder();
         sb.append("Target: ").append(currentTargetDiagramName).append("\n");
@@ -552,7 +588,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
             if (currentDiagram instanceof IStateMachineDiagram) {
                 String scriptText = testManager.getTestCaseScript(selectedTest, ((IStateMachineDiagram) currentDiagram).getStateMachine());
                 if (scriptText != null) {
-                    isAutoGenerateMode = false; // スクリプトを読み込んだら自動生成(上書き)モードをオフにする
+                    setUiMode(UiMode.VIEWING); // Load -> Viewing
                     testScriptArea.setText(scriptText);
                     logArea.append("Loaded test script: " + selectedTest + "\n");
                 }
@@ -562,12 +598,49 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         }
     }
 
-    private void onTimeTravel() {
-        if (!isRunningTest) {
-            isAutoGenerateMode = true; // 手動でタイムトラベルしたら自動生成モードに復帰する
+    private void openScriptFile() {
+        JFileChooser chooser = new JFileChooser();
+        if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+            File file = chooser.getSelectedFile();
+            try {
+                String content = new String(Files.readAllBytes(file.toPath()), java.nio.charset.StandardCharsets.UTF_8);
+                if (clearScriptIfConfirmed("load script from file")) {
+                    testScriptArea.setText(content);
+                    logArea.append("Loaded script from file: " + file.getName() + "\n");
+                    setUiMode(UiMode.VIEWING);
+                }
+            } catch (Exception e) {
+                logArea.append("Failed to load file: " + e.getMessage() + "\n");
+            }
         }
+    }
+
+    private void pasteScript() {
+        try {
+            Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+            if (clipboard.isDataFlavorAvailable(DataFlavor.stringFlavor)) {
+                String content = (String) clipboard.getData(DataFlavor.stringFlavor);
+                if (content != null && !content.trim().isEmpty()) {
+                    if (clearScriptIfConfirmed("paste a new script")) {
+                        testScriptArea.setText(content);
+                        logArea.append("Pasted script from clipboard.\n");
+                        setUiMode(UiMode.VIEWING);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logArea.append("Failed to paste script: " + e.getMessage() + "\n");
+        }
+    }
+
+    private void onTimeTravel() {
+        // 過去の履歴に移動した場合、閲覧モード（保護）へ移行する
+        if (engine.getCurrentSnapshotIndex() < engine.getHistorySize() - 1) {
+            setUiMode(UiMode.VIEWING); // Live --TimeTravel_Past--> Viewing
+        }
+        
         refreshUI();
-        if (isAutoGenerateMode && !isRunningTest) {
+        if (currentUiMode == UiMode.LIVE && !isRunningTest) {
             regenerateScriptFromHistory();
         }
     }
@@ -585,7 +658,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
         scriptHistory.add(new ScriptStep(eventName, currentStates));
 
         // 自動生成モードかつ自動実行中でない場合のみエディタを更新
-        if (isAutoGenerateMode && !isRunningTest) {
+        if (currentUiMode == UiMode.LIVE && !isRunningTest) {
             regenerateScriptFromHistory();
         }
     }
@@ -651,7 +724,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
     private void runTestScript() {
         String scriptText = testScriptArea.getText();
         testResultArea.setText("Running test script...\n");
-        isAutoGenerateMode = false; // 実行開始時に自動生成（上書き）はオフにする
+        setUiMode(UiMode.VIEWING); // 実行中はエディタを保護
         testStatusLabel.setText(" ⏳ Running...");
         testStatusLabel.setForeground(Color.BLACK);
 
@@ -696,6 +769,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
                         engine.setAutoTimerEnabled(true);
                         fastModeCheckbox.setSelected(originalFastMode);
                         engine.setFastMode(originalFastMode);
+                        setUiMode(UiMode.VIEWING); // RunComplete -> Viewing
                         refreshUI();
                     });
                 }
@@ -706,6 +780,7 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
             engine.setAutoTimerEnabled(true);
             fastModeCheckbox.setSelected(originalFastMode);
             engine.setFastMode(originalFastMode);
+            setUiMode(UiMode.VIEWING);
             refreshUI();
 
             testResultArea.setText("❌ SCRIPT PARSE ERROR ❌\n" + e.getMessage());
@@ -951,8 +1026,9 @@ public class StmAnalysisView extends JPanel implements IPluginExtraTabView {
             SimulationEngine.StepResult result = engine.step(paths, null);
             if (result == null) return;
 
-            if (!isRunningTest) {
-                isAutoGenerateMode = true; // 手動でイベントを押したら自動生成モードに復帰する
+            // Viewingモードでイベントが発火された場合、Liveモードへ昇格（Branching）させる
+            if (currentUiMode == UiMode.VIEWING && !isRunningTest) {
+                setUiMode(UiMode.LIVE); // Viewing --FireEvent_Branch--> Live
             }
 
             recordStep(label);
